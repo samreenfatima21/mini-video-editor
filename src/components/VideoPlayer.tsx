@@ -1,9 +1,9 @@
 "use client";
 
 // VideoPlayer — shows the uploaded video with play/pause controls.
-// This is the main preview area where users see their video.
+// V2: Added keyboard shortcuts (Space, arrows, F for fullscreen)
 
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import type { FilterSettings, TextOverlay } from "@/types/editor";
 
 interface VideoPlayerProps {
@@ -12,7 +12,6 @@ interface VideoPlayerProps {
   filters: FilterSettings;
   textOverlays: TextOverlay[];
   onRemoveVideo: () => void;
-  // We pass the video element ref up so other components (like trim) can control it
   onVideoRef?: (ref: HTMLVideoElement | null) => void;
   onTimeUpdate?: (currentTime: number) => void;
   onLoadedMetadata?: (duration: number) => void;
@@ -29,22 +28,21 @@ export default function VideoPlayer({
   onLoadedMetadata,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
 
-  // Pass the video element reference to the parent when it's ready
   useEffect(() => {
     onVideoRef?.(videoRef.current);
   }, [onVideoRef]);
 
-  // Build the CSS filter string from our filter settings
-  // This applies visual filters WITHOUT modifying the actual video file
   const filterStyle = {
     filter: `brightness(${filters.brightness}%) contrast(${filters.contrast}%) grayscale(${filters.grayscale}%)`,
   };
 
-  const togglePlay = () => {
+  const togglePlay = useCallback(() => {
     if (!videoRef.current) return;
     if (isPlaying) {
       videoRef.current.pause();
@@ -52,9 +50,59 @@ export default function VideoPlayer({
       videoRef.current.play();
     }
     setIsPlaying(!isPlaying);
-  };
+  }, [isPlaying]);
 
-  // Format seconds into MM:SS display
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if user is typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      switch (e.code) {
+        case "Space":
+          e.preventDefault();
+          togglePlay();
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          if (videoRef.current) videoRef.current.currentTime -= 5;
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          if (videoRef.current) videoRef.current.currentTime += 5;
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          if (videoRef.current) {
+            const newVol = Math.min(1, volume + 0.1);
+            videoRef.current.volume = newVol;
+            setVolume(newVol);
+          }
+          break;
+        case "ArrowDown":
+          e.preventDefault();
+          if (videoRef.current) {
+            const newVol = Math.max(0, volume - 0.1);
+            videoRef.current.volume = newVol;
+            setVolume(newVol);
+          }
+          break;
+        case "KeyF":
+          if (containerRef.current) {
+            if (document.fullscreenElement) {
+              document.exitFullscreen();
+            } else {
+              containerRef.current.requestFullscreen();
+            }
+          }
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [togglePlay, volume]);
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
@@ -77,7 +125,7 @@ export default function VideoPlayer({
       </div>
 
       {/* The actual video element */}
-      <div className="relative rounded-xl overflow-hidden bg-black">
+      <div ref={containerRef} className="relative rounded-xl overflow-hidden bg-black">
         <video
           ref={videoRef}
           src={videoUrl}
@@ -128,12 +176,10 @@ export default function VideoPlayer({
           className="w-10 h-10 flex items-center justify-center rounded-full bg-zinc-800 hover:bg-zinc-700 transition-colors"
         >
           {isPlaying ? (
-            // Pause icon
             <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
               <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
             </svg>
           ) : (
-            // Play icon
             <svg className="w-5 h-5 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24">
               <path d="M8 5v14l11-7z" />
             </svg>
@@ -143,6 +189,11 @@ export default function VideoPlayer({
         {/* Time display */}
         <span className="text-zinc-400 text-sm font-mono min-w-[100px]">
           {formatTime(currentTime)} / {formatTime(duration)}
+        </span>
+
+        {/* Volume indicator */}
+        <span className="text-zinc-500 text-xs">
+          🔊 {Math.round(volume * 100)}%
         </span>
 
         {/* Progress bar — click to seek */}
@@ -163,6 +214,14 @@ export default function VideoPlayer({
             }}
           />
         </div>
+      </div>
+
+      {/* Keyboard shortcuts hint */}
+      <div className="flex gap-3 mt-2 text-zinc-600 text-xs">
+        <span>Space: Play/Pause</span>
+        <span>←→: Seek 5s</span>
+        <span>↑↓: Volume</span>
+        <span>F: Fullscreen</span>
       </div>
     </div>
   );

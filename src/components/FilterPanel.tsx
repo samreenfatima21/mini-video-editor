@@ -1,12 +1,7 @@
 "use client";
 
 // FilterPanel — sliders to adjust brightness, contrast, and grayscale.
-// These filters are applied as CSS (instant preview) and later baked in on export.
-//
-// How CSS filters work:
-// - brightness(100%) = normal, 200% = twice as bright, 0% = black
-// - contrast(100%) = normal, 200% = very contrasty, 0% = all gray
-// - grayscale(0%) = full color, 100% = black and white
+// Now with one-click presets: Vintage, Cinematic, Bright, Noir.
 
 import type { FilterSettings } from "@/types/editor";
 
@@ -15,25 +10,39 @@ interface FilterPanelProps {
   onFiltersChange: (filters: FilterSettings) => void;
 }
 
+// One-click filter presets
+const PRESETS: { name: string; emoji: string; filters: FilterSettings }[] = [
+  { name: "Normal", emoji: "🔄", filters: { brightness: 100, contrast: 100, grayscale: 0 } },
+  { name: "Vintage", emoji: "🎞️", filters: { brightness: 110, contrast: 85, grayscale: 30 } },
+  { name: "Cinematic", emoji: "🎬", filters: { brightness: 90, contrast: 130, grayscale: 10 } },
+  { name: "Bright", emoji: "☀️", filters: { brightness: 140, contrast: 110, grayscale: 0 } },
+  { name: "Noir", emoji: "🖤", filters: { brightness: 95, contrast: 120, grayscale: 100 } },
+];
+
 export default function FilterPanel({
   filters,
   onFiltersChange,
 }: FilterPanelProps) {
-  // Helper to update just one filter while keeping the others
   const updateFilter = (key: keyof FilterSettings, value: number) => {
     onFiltersChange({ ...filters, [key]: value });
   };
 
-  // Reset all filters back to normal
   const resetFilters = () => {
     onFiltersChange({ brightness: 100, contrast: 100, grayscale: 0 });
   };
 
-  // Check if any filter has been changed from default
   const isModified =
     filters.brightness !== 100 ||
     filters.contrast !== 100 ||
     filters.grayscale !== 0;
+
+  // Check which preset matches current filters
+  const activePreset = PRESETS.find(
+    (p) =>
+      p.filters.brightness === filters.brightness &&
+      p.filters.contrast === filters.contrast &&
+      p.filters.grayscale === filters.grayscale
+  );
 
   return (
     <div className="w-full bg-zinc-900 rounded-xl p-5 mt-4">
@@ -47,6 +56,23 @@ export default function FilterPanel({
             Reset
           </button>
         )}
+      </div>
+
+      {/* Filter Presets — one-click buttons */}
+      <div className="flex gap-2 mb-5 flex-wrap">
+        {PRESETS.map((preset) => (
+          <button
+            key={preset.name}
+            onClick={() => onFiltersChange(preset.filters)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+              activePreset?.name === preset.name
+                ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20"
+                : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
+            }`}
+          >
+            {preset.emoji} {preset.name}
+          </button>
+        ))}
       </div>
 
       {/* Brightness slider */}
