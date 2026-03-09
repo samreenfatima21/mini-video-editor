@@ -236,7 +236,7 @@ export default function CenterCanvas({
             style={{
               left: `${sticker.x}%`,
               top: `${sticker.y}%`,
-              transform: `translate(-50%, -50%) scale(${sticker.scale}) rotate(${sticker.rotation}deg)`,
+              transform: `translate(-50%, -50%) rotate(${sticker.rotation}deg) scale(${sticker.scale})`,
               opacity: sticker.opacity,
             }}
             onMouseDown={(e) => {

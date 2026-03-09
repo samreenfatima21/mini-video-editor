@@ -129,10 +129,10 @@ function buildTextDrawFilter(o: TextOverlay, clipDuration: number, fontsLoaded: 
 
     switch (o.animation) {
       case 'fade-in':
-        alphaParam = `if(lt(t-${st}\\,0.5)\\,(t-${st})/0.5\\,1)`;
+        alphaParam = `if(lt(t-${st}\\,0.5)\\,((t-${st})/0.5)\\,1)`;
         break;
       case 'slide-in':
-        xParam = `if(lt(t-${st}\\,0.4)\\,(-tw)+(tw+(w*${o.x / 100 / 100})-(tw/2))*((t-${st})/0.4)\\,(w*${o.x / 100})-(tw/2))`;
+        xParam = `if(lt(t-${st}\\,0.4)\\,(-tw)+((tw+(w*${o.x / 100})-(tw/2))*((t-${st})/0.4))\\,(w*${o.x / 100})-(tw/2))`;
         break;
       case 'pop': {
         const fs = o.fontSize;
@@ -158,7 +158,7 @@ function buildTextDrawFilter(o: TextOverlay, clipDuration: number, fontsLoaded: 
   const fontFamily = (o.fontFamily || 'inter') as FontFamily;
   const fontConfig = FONTS[fontFamily];
   if (fontConfig && fontsLoaded.has(fontConfig.ttfFilename)) {
-    parts.push(`fontfile=${fontConfig.ttfFilename}`);
+    parts.push(`fontfile='${fontConfig.ttfFilename}'`);
   }
 
   if (alphaParam) parts.push(`alpha=${alphaParam}`);
@@ -565,7 +565,7 @@ export default function ExportButton({
     // Count sticker inputs needed
     let stickerCount = 0;
     const clipStickerOffset: number[] = []; // maps clip index → first sticker input index
-    const bgMusicInputIdx = N + (backgroundMusic ? 0 : -1);
+    const bgMusicInputIdx = N; // only used when backgroundMusic is truthy
     const stickerBaseIdx = N + (backgroundMusic ? 1 : 0);
 
     for (let i = 0; i < N; i++) {
