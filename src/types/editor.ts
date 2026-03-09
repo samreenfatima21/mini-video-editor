@@ -255,6 +255,24 @@ export function getEffectiveDuration(clip: TimelineClip): number {
   return trimmed > 0 ? trimmed / clip.playbackSpeed : 0;
 }
 
+// Find which clip is at a given global time, and the local time within that clip
+export function findClipAtTime(clips: TimelineClip[], globalTime: number): { clipIndex: number; localTime: number } | null {
+  let elapsed = 0;
+  for (let i = 0; i < clips.length; i++) {
+    const dur = getEffectiveDuration(clips[i]);
+    const overlap = i > 0 && clips[i].transition && clips[i].transition!.type !== "none"
+      ? clips[i].transition!.duration
+      : 0;
+    const start = elapsed - overlap;
+    const end = start + dur;
+    if (globalTime >= start && globalTime < end) {
+      return { clipIndex: i, localTime: globalTime - start };
+    }
+    elapsed = start + dur;
+  }
+  return null;
+}
+
 // Compute total timeline duration across all clips
 export function getTotalDuration(clips: TimelineClip[]): number {
   return clips.reduce((sum, clip, i) => {

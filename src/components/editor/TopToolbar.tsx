@@ -27,6 +27,8 @@ interface TopToolbarProps {
   onShowShortcuts: () => void;
   isProcessing: boolean;
   onExport: () => void;
+  onSaveProject?: () => void;
+  onLoadProject?: () => void;
   audio: AudioSettings;
   onAudioChange: (audio: AudioSettings) => void;
   onRemoveVideo: () => void;
@@ -53,6 +55,8 @@ export default function TopToolbar({
   onShowShortcuts,
   isProcessing,
   onExport,
+  onSaveProject,
+  onLoadProject,
   onRemoveVideo,
 }: TopToolbarProps) {
   const [isEditingName, setIsEditingName] = useState(false);
@@ -293,6 +297,36 @@ export default function TopToolbar({
             <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z" />
           </svg>
         </button>
+
+        {/* Save/Load */}
+        {hasVideo && onSaveProject && (
+          <button
+            onClick={onSaveProject}
+            className="p-1.5 rounded-md transition-all"
+            style={{ color: 'var(--text-secondary)' }}
+            title="Save project (Ctrl+S)"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+          </button>
+        )}
+        {hasVideo && onLoadProject && (
+          <button
+            onClick={onLoadProject}
+            className="p-1.5 rounded-md transition-all"
+            style={{ color: 'var(--text-secondary)' }}
+            title="Load project"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 0 0-1.883 2.542l.857 6a2.25 2.25 0 0 0 2.227 1.932H19.05a2.25 2.25 0 0 0 2.227-1.932l.857-6a2.25 2.25 0 0 0-1.883-2.542m-16.5 0V6A2.25 2.25 0 0 1 6 3.75h3.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 0 1.06.44H18A2.25 2.25 0 0 1 20.25 9v.776" />
+            </svg>
+          </button>
+        )}
+
+        {hasVideo && (onSaveProject || onLoadProject) && (
+          <div className="w-px h-4" style={{ background: 'var(--border-subtle)' }} />
+        )}
 
         {/* Export button */}
         {hasVideo && (

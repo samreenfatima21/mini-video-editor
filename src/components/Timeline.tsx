@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import type { TimelineClip } from "@/types/editor";
 import { getEffectiveDuration } from "@/types/editor";
 
@@ -14,6 +14,8 @@ interface TimelineProps {
   clipThumbnails: Record<string, string[]>;
   onTransitionClick?: (clipId: string) => void;
   onReorderClips?: (fromIndex: number, toIndex: number) => void;
+  zoom?: number;
+  onZoomChange?: (zoom: number) => void;
 }
 
 export default function Timeline({
@@ -26,16 +28,42 @@ export default function Timeline({
   clipThumbnails,
   onTransitionClick,
   onReorderClips,
+  zoom = 1,
+  onZoomChange,
 }: TimelineProps) {
   const timelineRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  // Auto-scroll to keep playhead visible
+  useEffect(() => {
+    if (!scrollContainerRef.current || totalDuration === 0 || zoom <= 1) return;
+    const container = scrollContainerRef.current;
+    const playheadPos = (currentTime / totalDuration) * container.scrollWidth;
+    const viewStart = container.scrollLeft;
+    const viewEnd = viewStart + container.clientWidth;
+    if (playheadPos < viewStart + 40 || playheadPos > viewEnd - 40) {
+      container.scrollLeft = playheadPos - container.clientWidth / 2;
+    }
+  }, [currentTime, totalDuration, zoom]);
+
+  // Ctrl/Cmd + scroll wheel to zoom
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    if ((e.metaKey || e.ctrlKey) && onZoomChange) {
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 1 : -1;
+      onZoomChange(Math.max(1, Math.min(10, zoom + delta)));
+    }
+  }, [zoom, onZoomChange]);
 
   const handleTrackClick = (e: React.MouseEvent) => {
     if (!timelineRef.current || totalDuration === 0) return;
     const rect = timelineRef.current.getBoundingClientRect();
-    const percent = (e.clientX - rect.left) / rect.width;
-    onSeek(percent * totalDuration);
+    const scrollOffset = scrollContainerRef.current?.scrollLeft ?? 0;
+    const clickX = e.clientX - rect.left + scrollOffset;
+    const percent = clickX / (rect.width * zoom);
+    onSeek(Math.max(0, Math.min(totalDuration, percent * totalDuration)));
   };
 
   const formatTime = (seconds: number) => {
@@ -70,14 +98,19 @@ export default function Timeline({
   if (clips.length === 0) return null;
 
   return (
-    <div className="w-full h-full flex flex-col">
-      {/* Clip blocks track */}
+    <div className="w-full h-full flex flex-col" onWheel={handleWheel}>
+      {/* Clip blocks track — scrollable when zoomed */}
       <div
-        ref={timelineRef}
-        className="relative flex-1 flex items-stretch rounded cursor-pointer overflow-hidden"
+        ref={scrollContainerRef}
+        className="relative flex-1 rounded overflow-x-auto overflow-y-hidden"
         style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)' }}
-        onClick={handleTrackClick}
       >
+        <div
+          ref={timelineRef}
+          className="relative h-full flex items-stretch cursor-pointer"
+          style={{ width: `${zoom * 100}%`, minWidth: '100%' }}
+          onClick={handleTrackClick}
+        >
         {clips.map((clip, i) => {
           const dur = getEffectiveDuration(clip);
           const widthPercent = totalDuration > 0 ? (dur / totalDuration) * 100 : 100 / clips.length;
@@ -166,15 +199,18 @@ export default function Timeline({
             style={{ background: 'var(--text-primary)' }}
           />
         </div>
-      </div>
+        </div>{/* end inner zoomed track */}
+      </div>{/* end scroll container */}
 
       {/* Time markers */}
-      <div className="relative w-full h-3.5 mt-0.5 flex-shrink-0">
+      <div className="relative w-full h-3.5 mt-0.5 flex-shrink-0 overflow-hidden">
         {totalDuration > 0 && (() => {
+          const effectiveDuration = totalDuration / zoom;
           let interval = 1;
-          if (totalDuration > 30) interval = 5;
-          if (totalDuration > 120) interval = 10;
-          if (totalDuration > 300) interval = 30;
+          if (effectiveDuration > 30) interval = 5;
+          if (effectiveDuration > 120) interval = 10;
+          if (effectiveDuration > 300) interval = 30;
+          if (zoom >= 4) interval = Math.max(0.5, interval / zoom);
           const markers = [];
           for (let t = 0; t <= totalDuration; t += interval) markers.push(t);
           return markers.map((t) => (

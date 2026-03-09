@@ -1,9 +1,9 @@
 "use client";
 
 // useUndoRedo — tracks state history so users can undo/redo changes.
-// Works with any state type. Keeps last 20 states in memory.
+// Works with any state type. Keeps last 30 states in memory.
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 
 interface UndoRedoReturn<T> {
   pushState: (state: T) => void;
@@ -13,7 +13,7 @@ interface UndoRedoReturn<T> {
   canRedo: boolean;
 }
 
-export function useUndoRedo<T>(maxHistory: number = 20): UndoRedoReturn<T> {
+export function useUndoRedo<T>(maxHistory: number = 30): UndoRedoReturn<T> {
   const [past, setPast] = useState<T[]>([]);
   const [future, setFuture] = useState<T[]>([]);
 
@@ -57,26 +57,6 @@ export function useUndoRedo<T>(maxHistory: number = 20): UndoRedoReturn<T> {
 
     return nextState;
   }, [future]);
-
-  // Keyboard shortcuts: Ctrl+Z for undo, Ctrl+Shift+Z for redo
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-
-      if ((e.metaKey || e.ctrlKey) && e.key === "z") {
-        if (e.shiftKey) {
-          e.preventDefault();
-          redo();
-        } else {
-          e.preventDefault();
-          undo();
-        }
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [undo, redo]);
 
   return {
     pushState,

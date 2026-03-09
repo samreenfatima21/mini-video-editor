@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useVideoEditor } from "@/hooks/useVideoEditor";
 import { useUndoRedo } from "@/hooks/useUndoRedo";
 import { useToast } from "@/hooks/useToast";
@@ -35,12 +35,9 @@ import ToastContainer from "@/components/Toast";
 import KeyboardShortcuts from "@/components/KeyboardShortcuts";
 import SplashScreen from "@/components/SplashScreen";
 import { useBackgroundMusic } from "@/hooks/useBackgroundMusic";
-import type { FilterSettings, TextOverlay, AutoSaveData, BackgroundMusic, StickerOverlay } from "@/types/editor";
-
-interface EditState {
-  filters: FilterSettings;
-  textOverlays: TextOverlay[];
-}
+import { useProjectStorage } from "@/hooks/useProjectStorage";
+import ProjectModal from "@/components/ProjectModal";
+import type { EditorState, FilterSettings, TextOverlay, AutoSaveData, BackgroundMusic, StickerOverlay } from "@/types/editor";
 
 export default function Home() {
   const {
@@ -50,6 +47,8 @@ export default function Home() {
     removeAllClips,
     selectClip,
     reorderClips,
+    duplicateClip,
+    splitClip,
     replaceClipVideo,
     setClipTrim,
     setClipFilters,
@@ -79,6 +78,7 @@ export default function Home() {
     removeCaption,
     setCaptionStyle,
     setCaptionsEnabled,
+    restoreState,
     selectedClip,
     totalDuration,
   } = useVideoEditor();
@@ -92,14 +92,38 @@ export default function Home() {
   const [showAutoSaveBanner, setShowAutoSaveBanner] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [activeTab, setActiveTab] = useState<SidebarTab>(null);
+  const [timelineZoom, setTimelineZoom] = useState(1);
+  const [projectModalMode, setProjectModalMode] = useState<"save" | "load" | null>(null);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
 
-  const { pushState, undo, redo, canUndo, canRedo } = useUndoRedo<EditState>();
+  const { pushState, undo, redo, canUndo, canRedo } = useUndoRedo<EditorState>(30);
+  const isUndoRedoRef = useRef(false);
+  const prevStateRef = useRef<EditorState | null>(null);
   const { toasts, addToast, removeToast } = useToast();
   const { projects, addProject, removeProject } = useRecentProjects();
   const { theme, toggleTheme } = useTheme();
+  const { projects: savedProjects, saveProject, loadProject, deleteProject } = useProjectStorage();
 
   const clipThumbnails = useMultiThumbnails(state.clips);
+
+  // Auto-push state changes for undo/redo (skip transient fields and undo/redo restores)
+  const stateForUndo = useMemo(() => {
+    const { isProcessing, isFFmpegReady, ...rest } = state;
+    return rest;
+  }, [state]);
+
+  useEffect(() => {
+    if (isUndoRedoRef.current) {
+      isUndoRedoRef.current = false;
+      prevStateRef.current = state;
+      return;
+    }
+    if (prevStateRef.current !== null) {
+      pushState(prevStateRef.current);
+    }
+    prevStateRef.current = state;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateForUndo]);
 
   // Background music sync
   useBackgroundMusic(state.backgroundMusic, isPlaying, currentTime, videoElRef.current);
@@ -161,19 +185,17 @@ export default function Home() {
   const handleFiltersChange = useCallback(
     (filters: FilterSettings) => {
       if (!selectedClip) return;
-      pushState({ filters: selectedClip.filters, textOverlays: selectedClip.textOverlays });
       setClipFilters(filters);
     },
-    [pushState, setClipFilters, selectedClip]
+    [setClipFilters, selectedClip]
   );
 
   const handleTextOverlaysChange = useCallback(
     (overlays: TextOverlay[]) => {
       if (!selectedClip) return;
-      pushState({ filters: selectedClip.filters, textOverlays: selectedClip.textOverlays });
       setClipTextOverlays(overlays);
     },
-    [pushState, setClipTextOverlays, selectedClip]
+    [setClipTextOverlays, selectedClip]
   );
 
   const handleTextOverlayMove = useCallback(
@@ -188,61 +210,19 @@ export default function Home() {
 
   const handleUndo = useCallback(() => {
     const s = undo();
-    if (s) { setClipFilters(s.filters); setClipTextOverlays(s.textOverlays); }
-  }, [undo, setClipFilters, setClipTextOverlays]);
+    if (s) {
+      isUndoRedoRef.current = true;
+      restoreState({ ...s, isProcessing: state.isProcessing, isFFmpegReady: state.isFFmpegReady });
+    }
+  }, [undo, restoreState, state.isProcessing, state.isFFmpegReady]);
 
   const handleRedo = useCallback(() => {
     const s = redo();
-    if (s) { setClipFilters(s.filters); setClipTextOverlays(s.textOverlays); }
-  }, [redo, setClipFilters, setClipTextOverlays]);
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-
-      if (e.key === "?" || (e.shiftKey && e.code === "Slash")) {
-        e.preventDefault();
-        setShowShortcuts((prev) => !prev);
-        return;
-      }
-
-      if ((e.metaKey || e.ctrlKey) && e.key === "z") {
-        if (e.shiftKey) { e.preventDefault(); handleRedo(); }
-        else { e.preventDefault(); handleUndo(); }
-      }
-
-      if (state.clips.length === 0) return;
-      const clipAudio = selectedClip?.audio ?? { muted: false, volume: 1, fadeIn: 0, fadeOut: 0 };
-      switch (e.code) {
-        case "Space":
-          e.preventDefault();
-          togglePlay();
-          break;
-        case "ArrowLeft":
-          e.preventDefault();
-          handleSeek(Math.max(0, currentTime - 5));
-          break;
-        case "ArrowRight":
-          e.preventDefault();
-          handleSeek(Math.min(duration, currentTime + 5));
-          break;
-        case "ArrowUp":
-          e.preventDefault();
-          setClipAudio({ ...clipAudio, volume: Math.min(1, clipAudio.volume + 0.1) });
-          break;
-        case "ArrowDown":
-          e.preventDefault();
-          setClipAudio({ ...clipAudio, volume: Math.max(0, clipAudio.volume - 0.1) });
-          break;
-        case "KeyM":
-          setClipAudio({ ...clipAudio, muted: !clipAudio.muted });
-          break;
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleUndo, handleRedo, state.clips, selectedClip, currentTime, duration, setClipAudio]);
+    if (s) {
+      isUndoRedoRef.current = true;
+      restoreState({ ...s, isProcessing: state.isProcessing, isFFmpegReady: state.isFFmpegReady });
+    }
+  }, [redo, restoreState, state.isProcessing, state.isFFmpegReady]);
 
   const handleVideoSelect = useCallback(
     (file: File) => {
@@ -290,6 +270,148 @@ export default function Home() {
     selectClip(clipId);
     setActiveTab('transitions');
   }, [selectClip]);
+
+  const handleDuplicateClip = useCallback(() => {
+    if (!state.selectedClipId) return;
+    duplicateClip(state.selectedClipId);
+    addToast("Clip duplicated", "success");
+  }, [state.selectedClipId, duplicateClip, addToast]);
+
+  const handleSplitClip = useCallback(() => {
+    if (state.clips.length === 0) return;
+    const ok = splitClip(currentTime);
+    if (ok) addToast("Clip split at playhead", "success");
+    else addToast("Cannot split here", "info");
+  }, [state.clips.length, splitClip, currentTime, addToast]);
+
+  const FRAME_STEP = 1 / 30;
+
+  const handleStepBackward = useCallback(() => {
+    if (videoElRef.current) {
+      videoElRef.current.pause();
+      setIsPlaying(false);
+      const newTime = Math.max(0, videoElRef.current.currentTime - FRAME_STEP);
+      videoElRef.current.currentTime = newTime;
+    }
+  }, []);
+
+  const handleStepForward = useCallback(() => {
+    if (videoElRef.current) {
+      videoElRef.current.pause();
+      setIsPlaying(false);
+      const newTime = Math.min(duration, videoElRef.current.currentTime + FRAME_STEP);
+      videoElRef.current.currentTime = newTime;
+    }
+  }, [duration]);
+
+  const handleSaveProject = useCallback(async (name: string) => {
+    await saveProject(name, state);
+    setProjectModalMode(null);
+    addToast("Project saved", "success");
+  }, [saveProject, state, addToast]);
+
+  const handleLoadProject = useCallback(async (id: string) => {
+    const result = await loadProject(id);
+    if (result) {
+      restoreState(result.state);
+      setProjectName(result.name);
+      setProjectModalMode(null);
+      addToast("Project loaded", "success");
+    } else {
+      addToast("Failed to load project", "error");
+    }
+  }, [loadProject, restoreState, addToast]);
+
+  const handleDeleteProject = useCallback(async (id: string) => {
+    await deleteProject(id);
+    addToast("Project deleted", "info");
+  }, [deleteProject, addToast]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.key === "?" || (e.shiftKey && e.code === "Slash")) {
+        e.preventDefault();
+        setShowShortcuts((prev) => !prev);
+        return;
+      }
+
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault();
+        if (state.clips.length > 0) setProjectModalMode("save");
+        return;
+      }
+
+      if ((e.metaKey || e.ctrlKey) && e.key === "z") {
+        if (e.shiftKey) { e.preventDefault(); handleRedo(); }
+        else { e.preventDefault(); handleUndo(); }
+      }
+
+      if ((e.metaKey || e.ctrlKey) && e.key === "d") {
+        e.preventDefault();
+        handleDuplicateClip();
+        return;
+      }
+
+      if ((e.metaKey || e.ctrlKey) && (e.key === "=" || e.key === "+")) {
+        e.preventDefault();
+        setTimelineZoom((z) => Math.min(10, z + 1));
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "-") {
+        e.preventDefault();
+        setTimelineZoom((z) => Math.max(1, z - 1));
+        return;
+      }
+
+      if (state.clips.length === 0) return;
+      // Split at playhead
+      if (e.code === "KeyS" && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+        e.preventDefault();
+        handleSplitClip();
+        return;
+      }
+
+      const clipAudio = selectedClip?.audio ?? { muted: false, volume: 1, fadeIn: 0, fadeOut: 0 };
+      switch (e.code) {
+        case "Space":
+          e.preventDefault();
+          togglePlay();
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          handleSeek(Math.max(0, currentTime - 5));
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          handleSeek(Math.min(duration, currentTime + 5));
+          break;
+        case "ArrowUp":
+          e.preventDefault();
+          setClipAudio({ ...clipAudio, volume: Math.min(1, clipAudio.volume + 0.1) });
+          break;
+        case "ArrowDown":
+          e.preventDefault();
+          setClipAudio({ ...clipAudio, volume: Math.max(0, clipAudio.volume - 0.1) });
+          break;
+        case "KeyM":
+          setClipAudio({ ...clipAudio, muted: !clipAudio.muted });
+          break;
+        case "Comma":
+          e.preventDefault();
+          handleStepBackward();
+          break;
+        case "Period":
+          e.preventDefault();
+          handleStepForward();
+          break;
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleUndo, handleRedo, handleDuplicateClip, handleSplitClip, handleStepBackward, handleStepForward, togglePlay, handleSeek, state.clips, selectedClip, currentTime, duration, setClipAudio]);
 
   // Render sidebar panel content based on activeTab
   const renderSidebarContent = () => {
@@ -427,6 +549,17 @@ export default function Home() {
       {showSplash && <SplashScreen />}
       <ToastContainer toasts={toasts} onRemove={removeToast} />
       <KeyboardShortcuts isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
+      {projectModalMode && (
+        <ProjectModal
+          mode={projectModalMode}
+          projects={savedProjects}
+          currentName={projectName}
+          onSave={handleSaveProject}
+          onLoad={handleLoadProject}
+          onDelete={handleDeleteProject}
+          onClose={() => setProjectModalMode(null)}
+        />
+      )}
 
       {/* Mobile warning */}
       <div className="mobile-warning fixed inset-0 z-[300] flex items-center justify-center p-6" style={{ background: 'var(--bg-base)' }}>
@@ -616,6 +749,8 @@ export default function Home() {
             onShowShortcuts={() => setShowShortcuts(true)}
             isProcessing={state.isProcessing}
             onExport={handleExportFromToolbar}
+            onSaveProject={() => setProjectModalMode("save")}
+            onLoadProject={() => setProjectModalMode("load")}
             audio={clipAudio}
             onAudioChange={setClipAudio}
             onRemoveVideo={removeAllClips}
@@ -672,7 +807,14 @@ export default function Home() {
             audio={clipAudio}
             onAudioChange={setClipAudio}
             onAddClip={handleAddClip}
+            onDuplicateClip={handleDuplicateClip}
+            onSplitClip={handleSplitClip}
+            onStepBackward={handleStepBackward}
+            onStepForward={handleStepForward}
             clipCount={state.clips.length}
+            hasSelectedClip={!!state.selectedClipId}
+            zoom={timelineZoom}
+            onZoomChange={setTimelineZoom}
           >
             <Timeline
               clips={state.clips}
@@ -684,6 +826,8 @@ export default function Home() {
               clipThumbnails={clipThumbnails}
               onTransitionClick={handleTransitionClick}
               onReorderClips={reorderClips}
+              zoom={timelineZoom}
+              onZoomChange={setTimelineZoom}
             />
           </BottomTimeline>
         </div>

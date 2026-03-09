@@ -21,7 +21,7 @@ import type {
   CaptionStyle,
   CaptionSettings,
 } from "@/types/editor";
-import { getTotalDuration } from "@/types/editor";
+import { getTotalDuration, getEffectiveDuration, findClipAtTime } from "@/types/editor";
 
 const defaultFilters: FilterSettings = { brightness: 100, contrast: 100, grayscale: 0 };
 const defaultAudio: AudioSettings = { muted: false, volume: 1, fadeIn: 0, fadeOut: 0 };
@@ -132,6 +132,86 @@ export function useVideoEditor() {
 
   const selectClip = useCallback((clipId: string) => {
     setState((prev) => ({ ...prev, selectedClipId: clipId }));
+  }, []);
+
+  const duplicateClip = useCallback((clipId: string) => {
+    setState((prev) => {
+      const idx = prev.clips.findIndex((c) => c.id === clipId);
+      if (idx === -1) return prev;
+      const original = prev.clips[idx];
+      const newId = `clip-${Date.now()}-${clipCounter++}`;
+      const duplicate: TimelineClip = {
+        ...original,
+        id: newId,
+        video: { ...original.video },
+        trim: { ...original.trim },
+        filters: { ...original.filters },
+        textOverlays: original.textOverlays.map((o) => ({ ...o, id: `txt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` })),
+        audio: { ...original.audio },
+        transition: { type: "dissolve", duration: 0.5 },
+        transform: { ...original.transform },
+        panZoom: {
+          ...original.panZoom,
+          startKeyframe: { ...original.panZoom.startKeyframe },
+          endKeyframe: { ...original.panZoom.endKeyframe },
+        },
+        stickerOverlays: original.stickerOverlays.map((s) => ({ ...s, id: `stk-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` })),
+      };
+      const newClips = [...prev.clips];
+      newClips.splice(idx + 1, 0, duplicate);
+      return { ...prev, clips: newClips, selectedClipId: newId };
+    });
+  }, []);
+
+  const splitClip = useCallback((globalTime: number): boolean => {
+    let success = false;
+    setState((prev) => {
+      const result = findClipAtTime(prev.clips, globalTime);
+      if (!result) return prev;
+      const { clipIndex, localTime } = result;
+      const clip = prev.clips[clipIndex];
+      const effectiveDur = getEffectiveDuration(clip);
+
+      // Don't split if too close to start/end (< 0.1s)
+      if (localTime < 0.1 || localTime > effectiveDur - 0.1) return prev;
+
+      // Convert localTime back to original time accounting for speed
+      const splitInOriginal = localTime * clip.playbackSpeed;
+
+      const clipA: TimelineClip = {
+        ...clip,
+        id: `clip-${Date.now()}-${clipCounter++}`,
+        video: { ...clip.video },
+        trim: { start: clip.trim.start, end: clip.trim.start + splitInOriginal },
+        filters: { ...clip.filters },
+        textOverlays: clip.textOverlays.map((o) => ({ ...o })),
+        audio: { ...clip.audio },
+        transition: clip.transition ? { ...clip.transition } : null,
+        transform: { ...clip.transform },
+        panZoom: { ...clip.panZoom, startKeyframe: { ...clip.panZoom.startKeyframe }, endKeyframe: { ...clip.panZoom.endKeyframe } },
+        stickerOverlays: clip.stickerOverlays.map((s) => ({ ...s })),
+      };
+
+      const clipB: TimelineClip = {
+        ...clip,
+        id: `clip-${Date.now()}-${clipCounter++}`,
+        video: { ...clip.video },
+        trim: { start: clip.trim.start + splitInOriginal, end: clip.trim.end },
+        filters: { ...clip.filters },
+        textOverlays: clip.textOverlays.map((o) => ({ ...o })),
+        audio: { ...clip.audio },
+        transition: { type: "dissolve", duration: 0.5 },
+        transform: { ...clip.transform },
+        panZoom: { ...clip.panZoom, startKeyframe: { ...clip.panZoom.startKeyframe }, endKeyframe: { ...clip.panZoom.endKeyframe } },
+        stickerOverlays: clip.stickerOverlays.map((s) => ({ ...s })),
+      };
+
+      const newClips = [...prev.clips];
+      newClips.splice(clipIndex, 1, clipA, clipB);
+      success = true;
+      return { ...prev, clips: newClips, selectedClipId: clipA.id };
+    });
+    return success;
   }, []);
 
   const reorderClips = useCallback((fromIndex: number, toIndex: number) => {
@@ -375,6 +455,11 @@ export function useVideoEditor() {
     }));
   }, []);
 
+  // --- State restore (for undo/redo) ---
+  const restoreState = useCallback((s: EditorState) => {
+    setState(s);
+  }, []);
+
   // --- Derived ---
 
   const selectedClip = useMemo(
@@ -395,6 +480,8 @@ export function useVideoEditor() {
     removeAllClips,
     selectClip,
     reorderClips,
+    duplicateClip,
+    splitClip,
     replaceClipVideo,
     // Per-clip setters
     setClipTrim,
@@ -431,6 +518,8 @@ export function useVideoEditor() {
     removeCaption,
     setCaptionStyle,
     setCaptionsEnabled,
+    // State restore
+    restoreState,
     // Derived
     selectedClip,
     totalDuration,
