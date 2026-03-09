@@ -13,8 +13,10 @@ import type {
   TextOverlay,
   PanZoomSettings,
   StickerOverlay,
+  FontFamily,
 } from "@/types/editor";
 import { getEffectiveDuration } from "@/types/editor";
+import { FONTS } from "@/lib/fonts";
 
 interface ExportButtonProps {
   clips: TimelineClip[];
@@ -110,7 +112,7 @@ function buildWatermarkFilter(wm: WatermarkSettings): string | null {
 
 // ─── FIX 1+2: Text overlay with font + animation support ───
 
-function buildTextDrawFilter(o: TextOverlay, clipDuration: number): string {
+function buildTextDrawFilter(o: TextOverlay, clipDuration: number, fontsLoaded: Set<string>): string {
   const escaped = o.text.replace(/'/g, "\\'").replace(/:/g, "\\:");
 
   let fontSizeParam = `${o.fontSize}`;
@@ -151,6 +153,13 @@ function buildTextDrawFilter(o: TextOverlay, clipDuration: number): string {
     'shadowx=2',
     'shadowy=2',
   ];
+
+  // Add fontfile if the font was loaded into FFmpeg FS
+  const fontFamily = (o.fontFamily || 'inter') as FontFamily;
+  const fontConfig = FONTS[fontFamily];
+  if (fontConfig && fontsLoaded.has(fontConfig.ttfFilename)) {
+    parts.push(`fontfile=${fontConfig.ttfFilename}`);
+  }
 
   if (alphaParam) parts.push(`alpha=${alphaParam}`);
   if (enableParam) parts.push(`enable='${enableParam}'`);
@@ -326,12 +335,38 @@ export default function ExportButton({
         await ffmpeg.writeFile("bg_music.mp3", bgData);
       }
 
+      // Load TTF fonts into FFmpeg virtual FS
+      setStatusMessage("Loading fonts...");
+      const fontsLoaded = new Set<string>();
+      const neededFonts = new Set<string>();
+      for (const clip of clips) {
+        for (const o of clip.textOverlays) {
+          if (o.text.trim()) {
+            const family = (o.fontFamily || 'inter') as FontFamily;
+            const config = FONTS[family];
+            if (config) neededFonts.add(config.ttfFilename);
+          }
+        }
+      }
+      for (const ttf of neededFonts) {
+        try {
+          const resp = await fetch(`/fonts/${ttf}`);
+          if (resp.ok) {
+            const buf = await resp.arrayBuffer();
+            await ffmpeg.writeFile(ttf, new Uint8Array(buf));
+            fontsLoaded.add(ttf);
+          }
+        } catch {
+          // font not available, FFmpeg will use default
+        }
+      }
+
       setProgress(25);
 
       if (clips.length === 1) {
-        await exportSingleClip(ffmpeg, clips[0], clipDurations[0], clipDimensions[0]);
+        await exportSingleClip(ffmpeg, clips[0], clipDurations[0], clipDimensions[0], fontsLoaded);
       } else {
-        await exportMultiClip(ffmpeg, clips, clipDurations, clipDimensions);
+        await exportMultiClip(ffmpeg, clips, clipDurations, clipDimensions, fontsLoaded);
       }
 
       setProgress(80);
@@ -356,6 +391,9 @@ export default function ExportButton({
       }
       try { await ffmpeg.deleteFile("output.mp4"); } catch { /* ignore */ }
       try { await ffmpeg.deleteFile("bg_music.mp3"); } catch { /* ignore */ }
+      for (const ttf of fontsLoaded) {
+        try { await ffmpeg.deleteFile(ttf); } catch { /* ignore */ }
+      }
 
       setProgress(100);
       setStatusMessage("Export complete!");
@@ -376,7 +414,8 @@ export default function ExportButton({
     ffmpeg: Awaited<ReturnType<typeof getFFmpeg>>,
     clip: TimelineClip,
     dur: number,
-    dim: { w: number; h: number }
+    dim: { w: number; h: number },
+    fontsLoaded: Set<string>
   ) => {
     setStatusMessage("Exporting...");
     setProgress(30);
@@ -410,10 +449,10 @@ export default function ExportButton({
     if (exportQuality === "720p") vf.push("scale=-2:720");
     else if (exportQuality === "1080p") vf.push("scale=-2:1080");
 
-    // Text overlays with animation support
+    // Text overlays with font + animation support
     for (const o of clip.textOverlays) {
       if (o.text.trim()) {
-        vf.push(buildTextDrawFilter(o, dur));
+        vf.push(buildTextDrawFilter(o, dur, fontsLoaded));
       }
     }
 
@@ -514,7 +553,8 @@ export default function ExportButton({
     ffmpeg: Awaited<ReturnType<typeof getFFmpeg>>,
     allClips: TimelineClip[],
     durations: number[],
-    dimensions: { w: number; h: number }[]
+    dimensions: { w: number; h: number }[],
+    fontsLoaded: Set<string>
   ) => {
     setStatusMessage("Building multi-clip export...");
     setProgress(30);
@@ -556,10 +596,10 @@ export default function ExportButton({
       if (b !== 0 || c !== 1) vf.push(`eq=brightness=${b}:contrast=${c}`);
       if (clip.filters.grayscale > 0) vf.push(`hue=s=${1 - clip.filters.grayscale / 100}`);
 
-      // Text overlays with animation
+      // Text overlays with font + animation
       for (const o of clip.textOverlays) {
         if (o.text.trim()) {
-          vf.push(buildTextDrawFilter(o, durations[i]));
+          vf.push(buildTextDrawFilter(o, durations[i], fontsLoaded));
         }
       }
 
