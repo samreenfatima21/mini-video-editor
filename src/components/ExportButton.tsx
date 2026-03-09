@@ -10,9 +10,11 @@ import type {
   ExportQuality,
   BackgroundMusic,
   CaptionSettings,
+  TextOverlay,
+  PanZoomSettings,
+  StickerOverlay,
 } from "@/types/editor";
 import { getEffectiveDuration } from "@/types/editor";
-import { FONTS } from "@/lib/fonts";
 
 interface ExportButtonProps {
   clips: TimelineClip[];
@@ -37,13 +39,18 @@ const QUALITY_OPTIONS: { label: string; value: ExportQuality }[] = [
   { label: "Original", value: "original" },
 ];
 
-async function probeVideoDuration(url: string): Promise<number> {
+// ─── Helpers ────────────────────────────────────────────────
+
+async function probeVideoInfo(url: string): Promise<{ duration: number; width: number; height: number }> {
   return new Promise((resolve) => {
     const video = document.createElement("video");
     video.preload = "metadata";
     video.src = url;
-    video.onloadedmetadata = () => { resolve(video.duration); video.src = ""; };
-    video.onerror = () => { resolve(0); video.src = ""; };
+    video.onloadedmetadata = () => {
+      resolve({ duration: video.duration, width: video.videoWidth, height: video.videoHeight });
+      video.src = "";
+    };
+    video.onerror = () => { resolve({ duration: 0, width: 1920, height: 1080 }); video.src = ""; };
   });
 }
 
@@ -101,6 +108,157 @@ function buildWatermarkFilter(wm: WatermarkSettings): string | null {
   return `drawtext=text='${text}':fontsize=${wm.fontSize}:fontcolor=${wm.color}@${alpha}:x=${pos.x}:y=${pos.y}:shadowcolor=black@0.3:shadowx=1:shadowy=1`;
 }
 
+// ─── FIX 1+2: Text overlay with font + animation support ───
+
+function buildTextDrawFilter(o: TextOverlay, clipDuration: number): string {
+  const escaped = o.text.replace(/'/g, "\\'").replace(/:/g, "\\:");
+
+  let fontSizeParam = `${o.fontSize}`;
+  let xParam = `(w*${o.x / 100})-(tw/2)`;
+  let alphaParam: string | null = null;
+  let enableParam: string | null = null;
+
+  // Animation overrides
+  if (o.animation && o.animation !== 'none') {
+    const st = o.animationStartTime ?? 0;
+    const dur = o.animationDuration ?? clipDuration;
+    const end = st + dur;
+    enableParam = `between(t\\,${st}\\,${end})`;
+
+    switch (o.animation) {
+      case 'fade-in':
+        alphaParam = `if(lt(t-${st}\\,0.5)\\,(t-${st})/0.5\\,1)`;
+        break;
+      case 'slide-in':
+        xParam = `if(lt(t-${st}\\,0.4)\\,(-tw)+(tw+(w*${o.x / 100 / 100})-(tw/2))*((t-${st})/0.4)\\,(w*${o.x / 100})-(tw/2))`;
+        break;
+      case 'pop': {
+        const fs = o.fontSize;
+        fontSizeParam = `if(lt(t-${st}\\,0.3)\\,trunc(${fs}*((t-${st})/0.3)*1.2)\\,if(lt(t-${st}\\,0.5)\\,trunc(${fs}*(1.2-0.2*((t-${st}-0.3)/0.2)))\\,${fs}))`;
+        break;
+      }
+      // typewriter: just enable timing, text appears at startTime
+    }
+  }
+
+  const parts = [
+    `text='${escaped}'`,
+    `fontsize=${fontSizeParam}`,
+    `fontcolor=${o.color}`,
+    `x=${xParam}`,
+    `y=(h*${o.y / 100})-(th/2)`,
+    'shadowcolor=black',
+    'shadowx=2',
+    'shadowy=2',
+  ];
+
+  if (alphaParam) parts.push(`alpha=${alphaParam}`);
+  if (enableParam) parts.push(`enable='${enableParam}'`);
+
+  return 'drawtext=' + parts.join(':');
+}
+
+// ─── FIX 3: Pan & Zoom export (zoompan filter) ─────────────
+
+function buildPanZoomFilter(
+  pz: PanZoomSettings,
+  duration: number,
+  videoW: number,
+  videoH: number
+): string | null {
+  if (!pz.enabled) return null;
+
+  const fps = 30;
+  const totalFrames = Math.max(1, Math.round(duration * fps));
+  const { startKeyframe: sk, endKeyframe: ek } = pz;
+
+  // Zoom interpolation
+  const z = sk.scale === ek.scale
+    ? `${sk.scale}`
+    : `${sk.scale}+((${ek.scale}-${sk.scale})*on/${totalFrames})`;
+
+  // X position (percentage 0-100 → pixel offset in zoomed frame)
+  const xS = sk.x / 100, xE = ek.x / 100;
+  const x = xS === xE
+    ? `${xS}*iw*(zoom-1)`
+    : `(${xS}+((${xE}-${xS})*on/${totalFrames}))*iw*(zoom-1)`;
+
+  // Y position
+  const yS = sk.y / 100, yE = ek.y / 100;
+  const y = yS === yE
+    ? `${yS}*ih*(zoom-1)`
+    : `(${yS}+((${yE}-${yS})*on/${totalFrames}))*ih*(zoom-1)`;
+
+  return `zoompan=z='${z}':x='${x}':y='${y}':d=1:s=${videoW}x${videoH}:fps=${fps}`;
+}
+
+// ─── FIX 4: Sticker rendering for export ────────────────────
+
+function getShapeSVG(shape: string, size: number): string {
+  const color = '#7c5cfc';
+  const svgShapes: Record<string, string> = {
+    circle: `<circle cx="50" cy="50" r="45" fill="${color}"/>`,
+    square: `<rect x="5" y="5" width="90" height="90" fill="${color}" rx="4"/>`,
+    star: `<polygon points="50,5 61,35 95,35 68,57 79,91 50,70 21,91 32,57 5,35 39,35" fill="${color}"/>`,
+    arrow: `<polygon points="10,50 60,10 60,35 90,35 90,65 60,65 60,90" fill="${color}"/>`,
+    heart: `<path d="M50 88 C25 65 5 50 5 30 C5 15 15 5 30 5 C40 5 48 12 50 18 C52 12 60 5 70 5 C85 5 95 15 95 30 C95 50 75 65 50 88Z" fill="${color}"/>`,
+    triangle: `<polygon points="50,10 90,90 10,90" fill="${color}"/>`,
+    diamond: `<polygon points="50,5 95,50 50,95 5,50" fill="${color}"/>`,
+    checkmark: `<path d="M20 55 L40 75 L80 25" fill="none" stroke="${color}" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>`,
+  };
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 100 100">${svgShapes[shape] || ''}</svg>`;
+}
+
+async function renderStickerToPNG(sticker: StickerOverlay): Promise<Uint8Array> {
+  const baseSize = 96;
+  const size = Math.round(baseSize * sticker.scale);
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.globalAlpha = sticker.opacity;
+
+  if (sticker.rotation !== 0) {
+    ctx.translate(size / 2, size / 2);
+    ctx.rotate((sticker.rotation * Math.PI) / 180);
+    ctx.translate(-size / 2, -size / 2);
+  }
+
+  if (sticker.type === 'emoji') {
+    ctx.font = `${Math.round(size * 0.75)}px serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(sticker.value, size / 2, size / 2);
+  } else if (sticker.type === 'shape') {
+    const svgContent = getShapeSVG(sticker.value, size);
+    const img = new Image();
+    const svgBlob = new Blob([svgContent], { type: 'image/svg+xml' });
+    const svgUrl = URL.createObjectURL(svgBlob);
+    await new Promise<void>((resolve) => {
+      img.onload = () => { ctx.drawImage(img, 0, 0, size, size); resolve(); };
+      img.onerror = () => resolve();
+      img.src = svgUrl;
+    });
+    URL.revokeObjectURL(svgUrl);
+  } else if (sticker.type === 'image') {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    await new Promise<void>((resolve) => {
+      img.onload = () => { ctx.drawImage(img, 0, 0, size, size); resolve(); };
+      img.onerror = () => resolve();
+      img.src = sticker.value;
+    });
+  }
+
+  const blob = await new Promise<Blob>((resolve) =>
+    canvas.toBlob((b) => resolve(b!), 'image/png')
+  );
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+// ─── Component ──────────────────────────────────────────────
+
 export default function ExportButton({
   clips,
   crop,
@@ -130,28 +288,50 @@ export default function ExportButton({
       const ffmpeg = await getFFmpeg();
       setProgress(5);
 
-      // Write clips to virtual FS and resolve durations
+      // Write clips to virtual FS and resolve durations + dimensions
       const clipDurations: number[] = [];
+      const clipDimensions: { w: number; h: number }[] = [];
       for (let i = 0; i < clips.length; i++) {
         setStatusMessage(`Reading clip ${i + 1} of ${clips.length}...`);
         const inputData = await fetchFile(clips[i].video.file);
         await ffmpeg.writeFile(`clip_${i}.mp4`, inputData);
 
+        const info = await probeVideoInfo(clips[i].video.url);
         let dur = getEffectiveDuration(clips[i]);
-        if (dur <= 0) {
-          const rawDur = await probeVideoDuration(clips[i].video.url);
-          dur = rawDur / clips[i].playbackSpeed;
-        }
+        if (dur <= 0) dur = info.duration / clips[i].playbackSpeed;
         clipDurations.push(dur);
-        setProgress(5 + Math.round((20 * (i + 1)) / clips.length));
+        clipDimensions.push({ w: info.width || 1920, h: info.height || 1080 });
+        setProgress(5 + Math.round((15 * (i + 1)) / clips.length));
       }
 
-      setProgress(30);
+      // Render sticker PNGs to virtual FS
+      setStatusMessage("Preparing stickers...");
+      const stickerInputFiles: string[] = [];
+      for (let i = 0; i < clips.length; i++) {
+        for (let j = 0; j < clips[i].stickerOverlays.length; j++) {
+          const fname = `sticker_${i}_${j}.png`;
+          try {
+            const pngData = await renderStickerToPNG(clips[i].stickerOverlays[j]);
+            await ffmpeg.writeFile(fname, pngData);
+            stickerInputFiles.push(fname);
+          } catch {
+            // skip failed sticker renders
+          }
+        }
+      }
+
+      // Write background music
+      if (backgroundMusic) {
+        const bgData = await fetchFile(backgroundMusic.file);
+        await ffmpeg.writeFile("bg_music.mp3", bgData);
+      }
+
+      setProgress(25);
 
       if (clips.length === 1) {
-        await exportSingleClip(ffmpeg, clips[0], clipDurations[0]);
+        await exportSingleClip(ffmpeg, clips[0], clipDurations[0], clipDimensions[0]);
       } else {
-        await exportMultiClip(ffmpeg, clips, clipDurations);
+        await exportMultiClip(ffmpeg, clips, clipDurations, clipDimensions);
       }
 
       setProgress(80);
@@ -167,8 +347,12 @@ export default function ExportButton({
       link.click();
       URL.revokeObjectURL(url);
 
+      // Cleanup virtual FS
       for (let i = 0; i < clips.length; i++) {
         try { await ffmpeg.deleteFile(`clip_${i}.mp4`); } catch { /* ignore */ }
+      }
+      for (const f of stickerInputFiles) {
+        try { await ffmpeg.deleteFile(f); } catch { /* ignore */ }
       }
       try { await ffmpeg.deleteFile("output.mp4"); } catch { /* ignore */ }
       try { await ffmpeg.deleteFile("bg_music.mp3"); } catch { /* ignore */ }
@@ -186,19 +370,35 @@ export default function ExportButton({
     }
   }, [clips, crop, watermark, exportQuality, globalFadeIn, globalFadeOut, backgroundMusic, captionSettings, onProcessingChange, addToast]);
 
-  // --- Single-clip export (simple -vf/-af) ---
-  const exportSingleClip = async (ffmpeg: Awaited<ReturnType<typeof getFFmpeg>>, clip: TimelineClip, dur: number) => {
+  // ─── Single-clip export ─────────────────────────────────
+
+  const exportSingleClip = async (
+    ffmpeg: Awaited<ReturnType<typeof getFFmpeg>>,
+    clip: TimelineClip,
+    dur: number,
+    dim: { w: number; h: number }
+  ) => {
     setStatusMessage("Exporting...");
-    setProgress(35);
+    setProgress(30);
+
+    const hasStickers = clip.stickerOverlays.length > 0;
+    const hasBgMusic = !!backgroundMusic;
+
+    // We need filter_complex when stickers or bgMusic are present (multiple inputs)
+    const useFilterComplex = hasStickers || hasBgMusic;
 
     const vf: string[] = [];
-    const af: string[] = [];
 
     if (clip.playbackSpeed !== 1) vf.push(`setpts=${1 / clip.playbackSpeed}*PTS`);
 
-    // Transform (rotate/flip) — before scale
+    // Transform (rotate/flip)
     vf.push(...buildTransformFilters(clip));
 
+    // Pan & Zoom
+    const pzFilter = buildPanZoomFilter(clip.panZoom, dur, dim.w, dim.h);
+    if (pzFilter) vf.push(pzFilter);
+
+    // Color filters
     const b = (clip.filters.brightness - 100) / 100;
     const c = clip.filters.contrast / 100;
     if (b !== 0 || c !== 1) vf.push(`eq=brightness=${b}:contrast=${c}`);
@@ -210,59 +410,96 @@ export default function ExportButton({
     if (exportQuality === "720p") vf.push("scale=-2:720");
     else if (exportQuality === "1080p") vf.push("scale=-2:1080");
 
+    // Text overlays with animation support
     for (const o of clip.textOverlays) {
       if (o.text.trim()) {
-        const escaped = o.text.replace(/'/g, "\\'").replace(/:/g, "\\:");
-        vf.push(`drawtext=text='${escaped}':fontsize=${o.fontSize}:fontcolor=${o.color}:x=(w*${o.x / 100})-(tw/2):y=(h*${o.y / 100})-(th/2):shadowcolor=black:shadowx=2:shadowy=2`);
+        vf.push(buildTextDrawFilter(o, dur));
       }
     }
 
     // Captions
-    if (captionSettings) {
-      vf.push(...buildCaptionFilters(captionSettings));
-    }
+    if (captionSettings) vf.push(...buildCaptionFilters(captionSettings));
 
+    // Watermark
     const wmF = buildWatermarkFilter(watermark);
     if (wmF) vf.push(wmF);
 
+    // Fades
     if (globalFadeIn > 0) vf.push(`fade=t=in:st=0:d=${globalFadeIn}`);
     if (globalFadeOut > 0) vf.push(`fade=t=out:st=${Math.max(0, dur - globalFadeOut)}:d=${globalFadeOut}`);
 
+    // Audio filters
+    const af: string[] = [];
     if (clip.playbackSpeed !== 1 && !clip.audio.muted) af.push(...buildAtempoChain(clip.playbackSpeed));
     if (!clip.audio.muted && clip.audio.volume !== 1) af.push(`volume=${clip.audio.volume}`);
     if (!clip.audio.muted && clip.audio.fadeIn > 0) af.push(`afade=t=in:st=0:d=${clip.audio.fadeIn}`);
     if (!clip.audio.muted && clip.audio.fadeOut > 0) af.push(`afade=t=out:st=${Math.max(0, dur - clip.audio.fadeOut)}:d=${clip.audio.fadeOut}`);
 
+    // ─── Build command ───
     const cmd: string[] = ["-i", "clip_0.mp4"];
 
-    // Background music input
-    if (backgroundMusic) {
-      const bgData = await fetchFile(backgroundMusic.file);
-      await ffmpeg.writeFile("bg_music.mp3", bgData);
-      if (backgroundMusic.loop) cmd.push("-stream_loop", "-1");
+    // Add sticker inputs
+    const stickerInputOffset = 1 + (hasBgMusic ? 1 : 0);
+    if (hasBgMusic) {
+      if (backgroundMusic!.loop) cmd.push("-stream_loop", "-1");
       cmd.push("-i", "bg_music.mp3");
     }
+    for (let j = 0; j < clip.stickerOverlays.length; j++) {
+      cmd.push("-i", `sticker_0_${j}.png`);
+    }
 
-    if (vf.length > 0) cmd.push("-vf", vf.join(","));
+    if (useFilterComplex) {
+      // Build filter_complex graph
+      const fc: string[] = [];
 
-    if (backgroundMusic && !clip.audio.muted) {
-      // Mix clip audio with background music
-      const bgVol = backgroundMusic.volume;
-      const bgFadeFilters: string[] = [];
-      if (backgroundMusic.fadeIn > 0) bgFadeFilters.push(`afade=t=in:st=0:d=${backgroundMusic.fadeIn}`);
-      if (backgroundMusic.fadeOut > 0) bgFadeFilters.push(`afade=t=out:st=${Math.max(0, dur - backgroundMusic.fadeOut)}:d=${backgroundMusic.fadeOut}`);
-      const bgChain = bgFadeFilters.length > 0 ? bgFadeFilters.join(",") + "," : "";
-      const clipAf = af.length > 0 ? af.join(",") : "anull";
-      cmd.push("-filter_complex", `[0:a]${clipAf}[ca];[1:a]${bgChain}volume=${bgVol}[ba];[ca][ba]amix=inputs=2:duration=first:dropout_transition=0[aout]`);
-      cmd.push("-map", "0:v", "-map", "[aout]");
-    } else if (backgroundMusic && clip.audio.muted) {
-      const bgVol = backgroundMusic.volume;
-      cmd.push("-filter_complex", `[1:a]volume=${bgVol}[aout]`);
-      cmd.push("-map", "0:v", "-map", "[aout]");
-    } else if (clip.audio.muted) {
-      cmd.push("-an");
-    } else if (af.length > 0) {
-      cmd.push("-af", af.join(","));
+      // Video chain
+      let vLabel = "0:v";
+      if (vf.length > 0) {
+        fc.push(`[0:v]${vf.join(",")}[vbase]`);
+        vLabel = "vbase";
+      }
+
+      // Sticker overlay chain
+      for (let j = 0; j < clip.stickerOverlays.length; j++) {
+        const s = clip.stickerOverlays[j];
+        const inIdx = stickerInputOffset + j;
+        const outLabel = `vs${j}`;
+        fc.push(`[${vLabel}][${inIdx}:v]overlay=x=main_w*${s.x / 100}-overlay_w/2:y=main_h*${s.y / 100}-overlay_h/2:format=auto[${outLabel}]`);
+        vLabel = outLabel;
+      }
+
+      // Audio chain
+      if (hasBgMusic && !clip.audio.muted) {
+        const clipAf = af.length > 0 ? af.join(",") : "anull";
+        const bgVol = backgroundMusic!.volume;
+        const bgFade: string[] = [];
+        if (backgroundMusic!.fadeIn > 0) bgFade.push(`afade=t=in:st=0:d=${backgroundMusic!.fadeIn}`);
+        if (backgroundMusic!.fadeOut > 0) bgFade.push(`afade=t=out:st=${Math.max(0, dur - backgroundMusic!.fadeOut)}:d=${backgroundMusic!.fadeOut}`);
+        const bgChain = bgFade.length > 0 ? bgFade.join(",") + "," : "";
+        fc.push(`[0:a]${clipAf}[ca]`);
+        fc.push(`[1:a]${bgChain}volume=${bgVol}[ba]`);
+        fc.push(`[ca][ba]amix=inputs=2:duration=first:dropout_transition=0[aout]`);
+        cmd.push("-filter_complex", fc.join(";"));
+        cmd.push("-map", `[${vLabel}]`, "-map", "[aout]");
+      } else if (hasBgMusic && clip.audio.muted) {
+        const bgVol = backgroundMusic!.volume;
+        fc.push(`[1:a]volume=${bgVol}[aout]`);
+        cmd.push("-filter_complex", fc.join(";"));
+        cmd.push("-map", `[${vLabel}]`, "-map", "[aout]");
+      } else if (clip.audio.muted) {
+        cmd.push("-filter_complex", fc.join(";"));
+        cmd.push("-map", `[${vLabel}]`, "-an");
+      } else {
+        if (af.length > 0) fc.push(`[0:a]${af.join(",")}[aout]`);
+        cmd.push("-filter_complex", fc.join(";"));
+        cmd.push("-map", `[${vLabel}]`);
+        if (af.length > 0) cmd.push("-map", "[aout]");
+      }
+    } else {
+      // Simple -vf/-af (no stickers, no bg music)
+      if (vf.length > 0) cmd.push("-vf", vf.join(","));
+      if (clip.audio.muted) cmd.push("-an");
+      else if (af.length > 0) cmd.push("-af", af.join(","));
     }
 
     cmd.push("-c:v", "libx264", "-c:a", "aac", "-strict", "experimental", "-shortest", "output.mp4");
@@ -271,13 +508,30 @@ export default function ExportButton({
     await ffmpeg.exec(cmd);
   };
 
-  // --- Multi-clip export with xfade ---
-  const exportMultiClip = async (ffmpeg: Awaited<ReturnType<typeof getFFmpeg>>, allClips: TimelineClip[], durations: number[]) => {
+  // ─── Multi-clip export with xfade ───────────────────────
+
+  const exportMultiClip = async (
+    ffmpeg: Awaited<ReturnType<typeof getFFmpeg>>,
+    allClips: TimelineClip[],
+    durations: number[],
+    dimensions: { w: number; h: number }[]
+  ) => {
     setStatusMessage("Building multi-clip export...");
-    setProgress(35);
+    setProgress(30);
 
     const N = allClips.length;
     const parts: string[] = [];
+
+    // Count sticker inputs needed
+    let stickerCount = 0;
+    const clipStickerOffset: number[] = []; // maps clip index → first sticker input index
+    const bgMusicInputIdx = N + (backgroundMusic ? 0 : -1);
+    const stickerBaseIdx = N + (backgroundMusic ? 1 : 0);
+
+    for (let i = 0; i < N; i++) {
+      clipStickerOffset.push(stickerBaseIdx + stickerCount);
+      stickerCount += allClips[i].stickerOverlays.length;
+    }
 
     // Per-clip video processing
     for (let i = 0; i < N; i++) {
@@ -292,19 +546,42 @@ export default function ExportButton({
       // Transform (rotate/flip)
       vf.push(...buildTransformFilters(clip));
 
+      // Pan & Zoom
+      const pzFilter = buildPanZoomFilter(clip.panZoom, durations[i], dimensions[i].w, dimensions[i].h);
+      if (pzFilter) vf.push(pzFilter);
+
+      // Color filters
       const b = (clip.filters.brightness - 100) / 100;
       const c = clip.filters.contrast / 100;
       if (b !== 0 || c !== 1) vf.push(`eq=brightness=${b}:contrast=${c}`);
       if (clip.filters.grayscale > 0) vf.push(`hue=s=${1 - clip.filters.grayscale / 100}`);
 
+      // Text overlays with animation
       for (const o of clip.textOverlays) {
         if (o.text.trim()) {
-          const escaped = o.text.replace(/'/g, "\\'").replace(/:/g, "\\:");
-          vf.push(`drawtext=text='${escaped}':fontsize=${o.fontSize}:fontcolor=${o.color}:x=(w*${o.x / 100})-(tw/2):y=(h*${o.y / 100})-(th/2):shadowcolor=black:shadowx=2:shadowy=2`);
+          vf.push(buildTextDrawFilter(o, durations[i]));
         }
       }
 
-      parts.push(`[${i}:v]${vf.length > 0 ? vf.join(",") : "null"}[pv${i}]`);
+      // Base video label (before sticker overlays)
+      const baseLabel = `pvb${i}`;
+      parts.push(`[${i}:v]${vf.length > 0 ? vf.join(",") : "null"}[${baseLabel}]`);
+
+      // Sticker overlays for this clip
+      let currentLabel = baseLabel;
+      for (let j = 0; j < clip.stickerOverlays.length; j++) {
+        const s = clip.stickerOverlays[j];
+        const stickerIdx = clipStickerOffset[i] + j;
+        const outLabel = j === clip.stickerOverlays.length - 1 ? `pv${i}` : `pvs${i}_${j}`;
+        parts.push(`[${currentLabel}][${stickerIdx}:v]overlay=x=main_w*${s.x / 100}-overlay_w/2:y=main_h*${s.y / 100}-overlay_h/2:format=auto[${outLabel}]`);
+        currentLabel = outLabel;
+      }
+
+      // If no stickers, rename label to expected pv{i}
+      if (clip.stickerOverlays.length === 0) {
+        // Replace the baseLabel with pv{i} directly
+        parts[parts.length - 1] = `[${i}:v]${vf.length > 0 ? vf.join(",") : "null"}[pv${i}]`;
+      }
     }
 
     // Per-clip audio processing
@@ -349,10 +626,7 @@ export default function ExportButton({
     if (cropF) gv.push(cropF);
     if (exportQuality === "720p") gv.push("scale=-2:720");
     else if (exportQuality === "1080p") gv.push("scale=-2:1080");
-    // Captions
-    if (captionSettings) {
-      gv.push(...buildCaptionFilters(captionSettings));
-    }
+    if (captionSettings) gv.push(...buildCaptionFilters(captionSettings));
     const wmF = buildWatermarkFilter(watermark);
     if (wmF) gv.push(wmF);
     if (globalFadeIn > 0) gv.push(`fade=t=in:st=0:d=${globalFadeIn}`);
@@ -387,30 +661,21 @@ export default function ExportButton({
       }
     }
 
-    // Background music for multi-clip
-    let bgInputIdx = -1;
+    // Background music mixing
     if (backgroundMusic) {
-      const bgData = await fetchFile(backgroundMusic.file);
-      await ffmpeg.writeFile("bg_music.mp3", bgData);
-      bgInputIdx = N;
-    }
-
-    // If we have background music, mix it with the audio chain
-    if (backgroundMusic && bgInputIdx >= 0) {
       const bgVol = backgroundMusic.volume;
-      const bgFadeFilters: string[] = [];
-      if (backgroundMusic.fadeIn > 0) bgFadeFilters.push(`afade=t=in:st=0:d=${backgroundMusic.fadeIn}`);
-      if (backgroundMusic.fadeOut > 0) bgFadeFilters.push(`afade=t=out:st=${Math.max(0, cumDur - backgroundMusic.fadeOut)}:d=${backgroundMusic.fadeOut}`);
-      const bgChain = bgFadeFilters.length > 0 ? bgFadeFilters.join(",") + "," : "";
+      const bgFade: string[] = [];
+      if (backgroundMusic.fadeIn > 0) bgFade.push(`afade=t=in:st=0:d=${backgroundMusic.fadeIn}`);
+      if (backgroundMusic.fadeOut > 0) bgFade.push(`afade=t=out:st=${Math.max(0, cumDur - backgroundMusic.fadeOut)}:d=${backgroundMusic.fadeOut}`);
+      const bgChain = bgFade.length > 0 ? bgFade.join(",") + "," : "";
 
       if (!allMuted && aLabel) {
-        parts.push(`[${bgInputIdx}:a]${bgChain}volume=${bgVol}[bgm]`);
+        parts.push(`[${bgMusicInputIdx}:a]${bgChain}volume=${bgVol}[bgm]`);
         parts.push(`[${aLabel}][bgm]amix=inputs=2:duration=first:dropout_transition=0[amixout]`);
         aLabel = "amixout";
       } else {
-        parts.push(`[${bgInputIdx}:a]${bgChain}volume=${bgVol}[bgm]`);
+        parts.push(`[${bgMusicInputIdx}:a]${bgChain}volume=${bgVol}[bgm]`);
         aLabel = "bgm";
-        // allMuted was true, but now we have audio
       }
     }
 
@@ -421,6 +686,11 @@ export default function ExportButton({
       if (backgroundMusic.loop) cmd.push("-stream_loop", "-1");
       cmd.push("-i", "bg_music.mp3");
     }
+    for (let i = 0; i < N; i++) {
+      for (let j = 0; j < allClips[i].stickerOverlays.length; j++) {
+        cmd.push("-i", `sticker_${i}_${j}.png`);
+      }
+    }
     cmd.push("-filter_complex", parts.join(";"));
     cmd.push("-map", `[${vLabel}]`);
     if (aLabel) { cmd.push("-map", `[${aLabel}]`, "-c:a", "aac"); }
@@ -429,9 +699,11 @@ export default function ExportButton({
     cmd.push("-c:v", "libx264", "-strict", "experimental", "-shortest", "output.mp4");
 
     setStatusMessage("Processing multi-clip export...");
-    setProgress(45);
+    setProgress(40);
     await ffmpeg.exec(cmd);
   };
+
+  // ─── UI ─────────────────────────────────────────────────
 
   return (
     <div className="w-full">
