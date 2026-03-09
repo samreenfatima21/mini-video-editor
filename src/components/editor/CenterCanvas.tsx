@@ -110,12 +110,20 @@ export default function CenterCanvas({
   useEffect(() => {
     if (!draggingOverlay) return;
 
+    // Determine if dragging a text overlay or a sticker
+    const isTextOverlay = textOverlays.some((o) => o.id === draggingOverlay);
+    const isSticker = stickerOverlays.some((s) => s.id === draggingOverlay);
+
     const handleMouseMove = (e: MouseEvent) => {
-      if (!videoAreaRef.current || !onTextOverlayMove) return;
+      if (!videoAreaRef.current) return;
       const rect = videoAreaRef.current.getBoundingClientRect();
       const x = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
       const y = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
-      onTextOverlayMove(draggingOverlay, Math.round(x), Math.round(y));
+      if (isTextOverlay && onTextOverlayMove) {
+        onTextOverlayMove(draggingOverlay, Math.round(x), Math.round(y));
+      } else if (isSticker && onStickerMove) {
+        onStickerMove(draggingOverlay, Math.round(x), Math.round(y));
+      }
     };
 
     const handleMouseUp = () => setDraggingOverlay(null);
@@ -126,7 +134,7 @@ export default function CenterCanvas({
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [draggingOverlay, onTextOverlayMove]);
+  }, [draggingOverlay, textOverlays, stickerOverlays, onTextOverlayMove, onStickerMove]);
 
   const handlePlayPause = useCallback(() => {
     if (!videoRef.current) return;
