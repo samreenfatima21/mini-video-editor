@@ -1,57 +1,267 @@
 // All the types (shapes of data) our editor uses.
-// Think of types like blueprints — they describe what data looks like.
 
 export interface VideoFile {
-  // The actual file the user uploaded
   file: File;
-  // A temporary URL so the browser can play the video
   url: string;
-  // Video filename for display
   name: string;
 }
 
 export interface TrimSettings {
-  // Where to start the clip (in seconds)
   start: number;
-  // Where to end the clip (in seconds)
   end: number;
 }
 
+// --- Font types ---
+export type FontFamily = 'inter' | 'roboto-mono' | 'playfair' | 'oswald' | 'dancing-script' | 'bebas-neue';
+
+// --- Text animation types ---
+export type TextAnimation = 'none' | 'fade-in' | 'typewriter' | 'slide-in' | 'pop';
+
 export interface TextOverlay {
-  // Unique ID for this text overlay
   id: string;
-  // The text to display
   text: string;
-  // Position on the video (0-100 percentage)
   x: number;
   y: number;
-  // Font size in pixels
   fontSize: number;
-  // Text color
   color: string;
+  fontFamily: FontFamily;
+  animation: TextAnimation;
+  animationStartTime?: number;
+  animationDuration?: number;
 }
 
 export interface FilterSettings {
-  // 0-200, where 100 is normal
   brightness: number;
-  // 0-200, where 100 is normal
   contrast: number;
-  // 0-100, where 0 is full color and 100 is fully grayscale
   grayscale: number;
+}
+
+export type PlaybackSpeed = 0.25 | 0.5 | 0.75 | 1 | 1.25 | 1.5 | 1.75 | 2;
+
+export interface AudioSettings {
+  muted: boolean;
+  volume: number;
+  fadeIn: number;
+  fadeOut: number;
+}
+
+// --- Transition types ---
+
+export type TransitionType =
+  | "none"
+  | "dissolve"
+  | "fade"
+  | "fadeblack"
+  | "fadewhite"
+  | "wipeleft"
+  | "wiperight"
+  | "wipeup"
+  | "wipedown"
+  | "slideleft"
+  | "slideright"
+  | "slideup"
+  | "slidedown"
+  | "zoomin";
+
+export interface ClipTransition {
+  type: TransitionType;
+  duration: number; // 0.3–2.0 seconds
+}
+
+export const TRANSITION_PRESETS: readonly { type: TransitionType; label: string; category: string }[] = [
+  { type: "none", label: "None", category: "basic" },
+  { type: "dissolve", label: "Dissolve", category: "basic" },
+  { type: "zoomin", label: "Zoom In", category: "basic" },
+  { type: "fade", label: "Fade", category: "fade" },
+  { type: "fadeblack", label: "Black", category: "fade" },
+  { type: "fadewhite", label: "White", category: "fade" },
+  { type: "wipeleft", label: "Left", category: "wipe" },
+  { type: "wiperight", label: "Right", category: "wipe" },
+  { type: "wipeup", label: "Up", category: "wipe" },
+  { type: "wipedown", label: "Down", category: "wipe" },
+  { type: "slideleft", label: "Left", category: "slide" },
+  { type: "slideright", label: "Right", category: "slide" },
+  { type: "slideup", label: "Up", category: "slide" },
+  { type: "slidedown", label: "Down", category: "slide" },
+];
+
+// --- Transform types ---
+export type RotationDegrees = 0 | 90 | 180 | 270;
+
+export interface TransformSettings {
+  rotation: RotationDegrees;
+  flipH: boolean;
+  flipV: boolean;
+}
+
+// --- Pan & Zoom types ---
+export interface PanZoomKeyframe {
+  scale: number;
+  x: number;
+  y: number;
+}
+
+export type EasingType = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';
+
+export interface PanZoomSettings {
+  enabled: boolean;
+  startKeyframe: PanZoomKeyframe;
+  endKeyframe: PanZoomKeyframe;
+  easing: EasingType;
+}
+
+// --- Sticker types ---
+export type StickerType = 'emoji' | 'image' | 'shape';
+
+export interface StickerOverlay {
+  id: string;
+  type: StickerType;
+  value: string;
+  x: number;
+  y: number;
+  scale: number;
+  rotation: number;
+  opacity: number;
+}
+
+// --- Timeline clip ---
+
+export interface TimelineClip {
+  id: string;
+  video: VideoFile;
+  trim: TrimSettings;
+  filters: FilterSettings;
+  textOverlays: TextOverlay[];
+  playbackSpeed: PlaybackSpeed;
+  audio: AudioSettings;
+  transition: ClipTransition | null; // null for first clip
+  transform: TransformSettings;
+  panZoom: PanZoomSettings;
+  stickerOverlays: StickerOverlay[];
+}
+
+// --- Legacy transition settings (kept for global fade in/out) ---
+
+export interface TransitionSettings {
+  fadeIn: number;
+  fadeOut: number;
+}
+
+// Aspect ratio presets
+export type AspectRatioPreset = "16:9" | "9:16" | "1:1" | "4:5" | "4:3" | "original";
+
+export interface CropSettings {
+  preset: AspectRatioPreset;
+}
+
+export interface WatermarkSettings {
+  enabled: boolean;
+  text: string;
+  position: "top-left" | "top-right" | "bottom-left" | "bottom-right";
+  opacity: number;
+  fontSize: number;
+  color: string;
+}
+
+export type ExportQuality = "720p" | "1080p" | "original";
+
+// --- Background Music ---
+export interface BackgroundMusic {
+  file: File;
+  fileName: string;
+  url: string;
+  volume: number;
+  startOffset: number;
+  loop: boolean;
+  fadeIn: number;
+  fadeOut: number;
+}
+
+// --- Captions / Subtitles ---
+export interface Caption {
+  id: string;
+  startTime: number;
+  endTime: number;
+  text: string;
+}
+
+export interface CaptionStyle {
+  fontSize: number;
+  fontColor: string;
+  backgroundColor: string;
+  position: 'bottom' | 'top';
+}
+
+export interface CaptionSettings {
+  captions: Caption[];
+  enabled: boolean;
+  style: CaptionStyle;
+}
+
+export type ThemeMode = "dark" | "light";
+
+export interface RecentProject {
+  id: string;
+  name: string;
+  fileName: string;
+  lastModified: number;
+  thumbnail?: string;
+}
+
+export interface AutoSaveData {
+  projectName: string;
+  filters: FilterSettings;
+  textOverlays: TextOverlay[];
+  trim: TrimSettings;
+  playbackSpeed: PlaybackSpeed;
+  audio: AudioSettings;
+  transitions: TransitionSettings;
+  crop: CropSettings;
+  watermark: WatermarkSettings;
+  exportQuality: ExportQuality;
+  savedAt: number;
+}
+
+export type ToastType = "success" | "error" | "info";
+
+export interface Toast {
+  id: string;
+  message: string;
+  type: ToastType;
 }
 
 // The complete state of our editor
 export interface EditorState {
-  // The video the user uploaded (null if nothing uploaded yet)
-  video: VideoFile | null;
-  // Trim start/end points
-  trim: TrimSettings;
-  // All text overlays on the video
-  textOverlays: TextOverlay[];
-  // Filter settings
-  filters: FilterSettings;
-  // Is FFmpeg currently processing something?
+  clips: TimelineClip[];
+  selectedClipId: string | null;
+  // Global settings
+  crop: CropSettings;
+  watermark: WatermarkSettings;
+  exportQuality: ExportQuality;
   isProcessing: boolean;
-  // Is FFmpeg loaded and ready?
   isFFmpegReady: boolean;
+  // Global fade in/out (intro/outro)
+  globalFadeIn: number;
+  globalFadeOut: number;
+  // Background music (global)
+  backgroundMusic: BackgroundMusic | null;
+  // Captions / subtitles (global)
+  captionSettings: CaptionSettings;
+}
+
+// Helper to compute effective clip duration
+export function getEffectiveDuration(clip: TimelineClip): number {
+  const trimmed = clip.trim.end - clip.trim.start;
+  return trimmed > 0 ? trimmed / clip.playbackSpeed : 0;
+}
+
+// Compute total timeline duration across all clips
+export function getTotalDuration(clips: TimelineClip[]): number {
+  return clips.reduce((sum, clip, i) => {
+    const dur = getEffectiveDuration(clip);
+    const overlap = i > 0 && clip.transition && clip.transition.type !== "none"
+      ? clip.transition.duration
+      : 0;
+    return sum + dur - overlap;
+  }, 0);
 }

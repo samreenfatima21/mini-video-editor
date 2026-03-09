@@ -1,8 +1,5 @@
 "use client";
 
-// FilterPanel — sliders to adjust brightness, contrast, and grayscale.
-// Now with one-click presets: Vintage, Cinematic, Bright, Noir.
-
 import type { FilterSettings } from "@/types/editor";
 
 interface FilterPanelProps {
@@ -10,13 +7,20 @@ interface FilterPanelProps {
   onFiltersChange: (filters: FilterSettings) => void;
 }
 
-// One-click filter presets
-const PRESETS: { name: string; emoji: string; filters: FilterSettings }[] = [
-  { name: "Normal", emoji: "🔄", filters: { brightness: 100, contrast: 100, grayscale: 0 } },
-  { name: "Vintage", emoji: "🎞️", filters: { brightness: 110, contrast: 85, grayscale: 30 } },
-  { name: "Cinematic", emoji: "🎬", filters: { brightness: 90, contrast: 130, grayscale: 10 } },
-  { name: "Bright", emoji: "☀️", filters: { brightness: 140, contrast: 110, grayscale: 0 } },
-  { name: "Noir", emoji: "🖤", filters: { brightness: 95, contrast: 120, grayscale: 100 } },
+const PRESETS: { name: string; filters: FilterSettings }[] = [
+  { name: "Normal", filters: { brightness: 100, contrast: 100, grayscale: 0 } },
+  { name: "Vintage", filters: { brightness: 110, contrast: 85, grayscale: 30 } },
+  { name: "Cinematic", filters: { brightness: 90, contrast: 130, grayscale: 10 } },
+  { name: "Bright", filters: { brightness: 140, contrast: 110, grayscale: 0 } },
+  { name: "Noir", filters: { brightness: 95, contrast: 120, grayscale: 100 } },
+  { name: "Warm", filters: { brightness: 115, contrast: 105, grayscale: 5 } },
+  { name: "Cool", filters: { brightness: 95, contrast: 110, grayscale: 15 } },
+  { name: "Sepia", filters: { brightness: 110, contrast: 90, grayscale: 45 } },
+  { name: "Retro", filters: { brightness: 105, contrast: 80, grayscale: 25 } },
+  { name: "Fade", filters: { brightness: 120, contrast: 75, grayscale: 10 } },
+  { name: "Dramatic", filters: { brightness: 85, contrast: 150, grayscale: 5 } },
+  { name: "Sunset", filters: { brightness: 125, contrast: 115, grayscale: 8 } },
+  { name: "Ocean", filters: { brightness: 90, contrast: 105, grayscale: 20 } },
 ];
 
 export default function FilterPanel({
@@ -36,7 +40,6 @@ export default function FilterPanel({
     filters.contrast !== 100 ||
     filters.grayscale !== 0;
 
-  // Check which preset matches current filters
   const activePreset = PRESETS.find(
     (p) =>
       p.filters.brightness === filters.brightness &&
@@ -45,82 +48,79 @@ export default function FilterPanel({
   );
 
   return (
-    <div className="w-full bg-zinc-900 rounded-xl p-5 mt-4">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-white font-medium">Filters</h3>
+    <div className="w-full">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Filters</h3>
         {isModified && (
           <button
             onClick={resetFilters}
-            className="text-zinc-500 hover:text-zinc-300 text-sm transition-colors"
+            className="text-[11px] transition-colors flex items-center gap-1"
+            style={{ color: 'var(--text-muted)' }}
           >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+            </svg>
             Reset
           </button>
         )}
       </div>
 
-      {/* Filter Presets — one-click buttons */}
-      <div className="flex gap-2 mb-5 flex-wrap">
+      {/* Preset grid — 2 columns */}
+      <div className="grid grid-cols-2 gap-1.5 mb-4">
         {PRESETS.map((preset) => (
           <button
             key={preset.name}
             onClick={() => onFiltersChange(preset.filters)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-              activePreset?.name === preset.name
-                ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20"
-                : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
-            }`}
+            className="px-2 py-1.5 rounded-lg text-[11px] font-medium transition-all text-left"
+            style={{
+              background: activePreset?.name === preset.name ? 'var(--accent-bg)' : 'var(--bg-elevated)',
+              color: activePreset?.name === preset.name ? 'var(--accent)' : 'var(--text-secondary)',
+              border: activePreset?.name === preset.name ? '1px solid var(--accent)' : '1px solid var(--border-subtle)',
+            }}
           >
-            {preset.emoji} {preset.name}
+            {preset.name}
           </button>
         ))}
       </div>
 
-      {/* Brightness slider */}
-      <div className="mb-4">
-        <div className="flex justify-between text-sm mb-1">
-          <span className="text-zinc-400">Brightness</span>
-          <span className="text-yellow-400 font-mono">{filters.brightness}%</span>
+      {/* Sliders */}
+      <div className="space-y-3">
+        <div>
+          <div className="flex justify-between text-[11px] mb-1">
+            <span style={{ color: 'var(--text-muted)' }}>Brightness</span>
+            <span className="font-mono" style={{ color: 'var(--text-secondary)' }}>{filters.brightness}%</span>
+          </div>
+          <input
+            type="range" min={0} max={200}
+            value={filters.brightness}
+            onChange={(e) => updateFilter("brightness", parseInt(e.target.value))}
+            className="w-full"
+          />
         </div>
-        <input
-          type="range"
-          min={0}
-          max={200}
-          value={filters.brightness}
-          onChange={(e) => updateFilter("brightness", parseInt(e.target.value))}
-          className="w-full accent-yellow-500"
-        />
-      </div>
-
-      {/* Contrast slider */}
-      <div className="mb-4">
-        <div className="flex justify-between text-sm mb-1">
-          <span className="text-zinc-400">Contrast</span>
-          <span className="text-orange-400 font-mono">{filters.contrast}%</span>
+        <div>
+          <div className="flex justify-between text-[11px] mb-1">
+            <span style={{ color: 'var(--text-muted)' }}>Contrast</span>
+            <span className="font-mono" style={{ color: 'var(--text-secondary)' }}>{filters.contrast}%</span>
+          </div>
+          <input
+            type="range" min={0} max={200}
+            value={filters.contrast}
+            onChange={(e) => updateFilter("contrast", parseInt(e.target.value))}
+            className="w-full"
+          />
         </div>
-        <input
-          type="range"
-          min={0}
-          max={200}
-          value={filters.contrast}
-          onChange={(e) => updateFilter("contrast", parseInt(e.target.value))}
-          className="w-full accent-orange-500"
-        />
-      </div>
-
-      {/* Grayscale slider */}
-      <div className="mb-4">
-        <div className="flex justify-between text-sm mb-1">
-          <span className="text-zinc-400">Grayscale</span>
-          <span className="text-zinc-300 font-mono">{filters.grayscale}%</span>
+        <div>
+          <div className="flex justify-between text-[11px] mb-1">
+            <span style={{ color: 'var(--text-muted)' }}>Grayscale</span>
+            <span className="font-mono" style={{ color: 'var(--text-secondary)' }}>{filters.grayscale}%</span>
+          </div>
+          <input
+            type="range" min={0} max={100}
+            value={filters.grayscale}
+            onChange={(e) => updateFilter("grayscale", parseInt(e.target.value))}
+            className="w-full"
+          />
         </div>
-        <input
-          type="range"
-          min={0}
-          max={100}
-          value={filters.grayscale}
-          onChange={(e) => updateFilter("grayscale", parseInt(e.target.value))}
-          className="w-full accent-zinc-400"
-        />
       </div>
     </div>
   );

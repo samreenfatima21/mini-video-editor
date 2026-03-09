@@ -1,126 +1,196 @@
 "use client";
 
-// Timeline — a visual bar that shows where you are in the video.
-// Shows:
-// - A playhead (current position marker) that moves as the video plays
-// - The trim region highlighted in blue
-// - Time markers along the bottom
-// - Click anywhere to jump to that point in the video
-
-import { useRef } from "react";
+import { useRef, useState } from "react";
+import type { TimelineClip } from "@/types/editor";
+import { getEffectiveDuration } from "@/types/editor";
 
 interface TimelineProps {
-  // Current playback position in seconds
+  clips: TimelineClip[];
+  selectedClipId: string | null;
+  onSelectClip: (clipId: string) => void;
   currentTime: number;
-  // Total video length in seconds
-  duration: number;
-  // Trim start/end points
-  trimStart: number;
-  trimEnd: number;
-  // Called when user clicks the timeline to seek
+  totalDuration: number;
   onSeek: (time: number) => void;
+  clipThumbnails: Record<string, string[]>;
+  onTransitionClick?: (clipId: string) => void;
+  onReorderClips?: (fromIndex: number, toIndex: number) => void;
 }
 
 export default function Timeline({
+  clips,
+  selectedClipId,
+  onSelectClip,
   currentTime,
-  duration,
-  trimStart,
-  trimEnd,
+  totalDuration,
   onSeek,
+  clipThumbnails,
+  onTransitionClick,
+  onReorderClips,
 }: TimelineProps) {
   const timelineRef = useRef<HTMLDivElement>(null);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
-  // Convert a click position to a time value
-  const handleClick = (e: React.MouseEvent) => {
-    if (!timelineRef.current || duration === 0) return;
+  const handleTrackClick = (e: React.MouseEvent) => {
+    if (!timelineRef.current || totalDuration === 0) return;
     const rect = timelineRef.current.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const percent = clickX / rect.width;
-    onSeek(percent * duration);
+    const percent = (e.clientX - rect.left) / rect.width;
+    onSeek(percent * totalDuration);
   };
 
-  // Format seconds into M:SS
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // Generate time markers (one every few seconds depending on duration)
-  const getTimeMarkers = () => {
-    if (duration === 0) return [];
-    // Decide spacing: short videos get markers every 1s, longer ones every 5s or 10s
-    let interval = 1;
-    if (duration > 30) interval = 5;
-    if (duration > 120) interval = 10;
-    if (duration > 300) interval = 30;
+  const playheadPercent = totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0;
 
-    const markers = [];
-    for (let t = 0; t <= duration; t += interval) {
-      markers.push(t);
-    }
-    return markers;
+  // Drag handlers
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDragIndex(index);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(index));
   };
 
-  // Percentages for positioning
-  const playheadPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
-  const trimStartPercent = duration > 0 ? (trimStart / duration) * 100 : 0;
-  const trimEndPercent = duration > 0 ? (trimEnd / duration) * 100 : 0;
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDrop = (e: React.DragEvent, toIndex: number) => {
+    e.preventDefault();
+    if (dragIndex !== null && dragIndex !== toIndex && onReorderClips) {
+      onReorderClips(dragIndex, toIndex);
+    }
+    setDragIndex(null);
+    setDragOverIndex(null);
+  };
+
+  if (clips.length === 0) return null;
 
   return (
-    <div className="w-full bg-zinc-900 rounded-xl p-5 mt-4">
-      <h3 className="text-white font-medium mb-3">Timeline</h3>
-
-      {/* Timeline bar */}
+    <div className="w-full h-full flex flex-col">
+      {/* Clip blocks track */}
       <div
         ref={timelineRef}
-        className="relative w-full h-12 bg-zinc-800 rounded-lg cursor-pointer overflow-hidden"
-        onClick={handleClick}
+        className="relative flex-1 flex items-stretch rounded cursor-pointer overflow-hidden"
+        style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)' }}
+        onClick={handleTrackClick}
       >
-        {/* Trim region — highlighted area between start and end */}
-        <div
-          className="absolute top-0 h-full bg-blue-500/20 border-l-2 border-r-2 border-blue-500"
-          style={{
-            left: `${trimStartPercent}%`,
-            width: `${trimEndPercent - trimStartPercent}%`,
-          }}
-        />
+        {clips.map((clip, i) => {
+          const dur = getEffectiveDuration(clip);
+          const widthPercent = totalDuration > 0 ? (dur / totalDuration) * 100 : 100 / clips.length;
+          const isSelected = clip.id === selectedClipId;
+          const thumbnails = clipThumbnails[clip.id] || [];
 
-        {/* Playhead — the moving vertical line showing current position */}
-        <div
-          className="absolute top-0 h-full w-0.5 bg-white z-10"
-          style={{ left: `${playheadPercent}%` }}
-        >
-          {/* Playhead handle (the little triangle at top) */}
-          <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-3 h-3 bg-white rounded-sm rotate-45" />
-        </div>
+          return (
+            <div key={clip.id} className="flex items-stretch" style={{ width: `${widthPercent}%` }}>
+              {/* Transition indicator between clips */}
+              {i > 0 && clip.transition && clip.transition.type !== "none" && (
+                <div
+                  className="flex items-center justify-center flex-shrink-0 cursor-pointer z-10"
+                  style={{ width: '20px' }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTransitionClick?.(clip.id);
+                  }}
+                  title={`${clip.transition.type} (${clip.transition.duration}s)`}
+                >
+                  <div
+                    className="w-4 h-4 rotate-45 rounded-sm"
+                    style={{ background: 'var(--accent)', opacity: 0.8 }}
+                  />
+                </div>
+              )}
 
-        {/* Current time tooltip above playhead */}
+              {/* Clip block */}
+              <div
+                className="flex-1 relative overflow-hidden rounded-sm transition-all"
+                draggable={!!onReorderClips}
+                onDragStart={(e) => handleDragStart(e, i)}
+                onDragOver={handleDragOver}
+                onDragEnter={() => setDragOverIndex(i)}
+                onDragLeave={() => { if (dragOverIndex === i) setDragOverIndex(null); }}
+                onDrop={(e) => handleDrop(e, i)}
+                onDragEnd={() => { setDragIndex(null); setDragOverIndex(null); }}
+                style={{
+                  background: isSelected ? 'var(--accent-bg)' : 'rgba(255,255,255,0.05)',
+                  border: isSelected
+                    ? '2px solid var(--accent)'
+                    : dragOverIndex === i
+                    ? '2px solid var(--accent-hover)'
+                    : '2px solid transparent',
+                  opacity: dragIndex === i ? 0.4 : 1,
+                  margin: '0 1px',
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelectClip(clip.id);
+                }}
+              >
+                {/* Thumbnails */}
+                {thumbnails.length > 0 && (
+                  <div className="absolute inset-0 flex opacity-50">
+                    {thumbnails.map((thumb, ti) => (
+                      <div
+                        key={ti}
+                        className="flex-1 bg-cover bg-center"
+                        style={{ backgroundImage: `url(${thumb})` }}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {/* Clip label */}
+                <div className="absolute bottom-0 left-0 right-0 px-1.5 py-0.5"
+                  style={{ background: 'linear-gradient(transparent, rgba(0,0,0,0.6))' }}>
+                  <span className="text-[9px] text-white truncate block">{clip.video.name}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Playhead */}
         <div
-          className="absolute -top-6 z-20 text-xs text-white bg-zinc-700 px-1.5 py-0.5 rounded"
+          className="absolute top-0 h-full w-0.5 z-20 pointer-events-none"
           style={{
             left: `${playheadPercent}%`,
-            transform: "translateX(-50%)",
+            background: 'var(--text-primary)',
+            boxShadow: '0 0 6px rgba(255,255,255,0.3)',
           }}
         >
-          {formatTime(currentTime)}
+          <div
+            className="absolute -top-0.5 left-1/2 -translate-x-1/2 w-2 h-2 rounded-sm rotate-45"
+            style={{ background: 'var(--text-primary)' }}
+          />
         </div>
       </div>
 
-      {/* Time markers below the timeline */}
-      <div className="relative w-full h-5 mt-1">
-        {getTimeMarkers().map((t) => (
-          <div
-            key={t}
-            className="absolute text-zinc-500 text-[10px]"
-            style={{
-              left: `${(t / duration) * 100}%`,
-              transform: "translateX(-50%)",
-            }}
-          >
-            {formatTime(t)}
-          </div>
-        ))}
+      {/* Time markers */}
+      <div className="relative w-full h-3.5 mt-0.5 flex-shrink-0">
+        {totalDuration > 0 && (() => {
+          let interval = 1;
+          if (totalDuration > 30) interval = 5;
+          if (totalDuration > 120) interval = 10;
+          if (totalDuration > 300) interval = 30;
+          const markers = [];
+          for (let t = 0; t <= totalDuration; t += interval) markers.push(t);
+          return markers.map((t) => (
+            <div
+              key={t}
+              className="absolute text-[8px] font-mono"
+              style={{
+                left: `${(t / totalDuration) * 100}%`,
+                transform: "translateX(-50%)",
+                color: 'var(--text-muted)',
+              }}
+            >
+              {formatTime(t)}
+            </div>
+          ));
+        })()}
       </div>
     </div>
   );
