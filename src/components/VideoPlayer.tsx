@@ -24,7 +24,7 @@ interface VideoPlayerProps {
 
 const SPEED_OPTIONS: PlaybackSpeed[] = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
-const defaultFilters: FilterSettings = { brightness: 100, contrast: 100, grayscale: 0 };
+const defaultFilters: FilterSettings = { brightness: 100, contrast: 100, grayscale: 0, saturation: 100, hueRotate: 0, temperature: 0 };
 
 // Aspect ratio CSS values
 const aspectRatioCSS: Record<string, string | undefined> = {

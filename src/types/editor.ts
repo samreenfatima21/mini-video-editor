@@ -28,12 +28,25 @@ export interface TextOverlay {
   animation: TextAnimation;
   animationStartTime?: number;
   animationDuration?: number;
+  // Styling
+  strokeColor?: string;
+  strokeWidth?: number;
+  shadowOffsetX?: number;
+  shadowOffsetY?: number;
+  shadowBlur?: number;
+  shadowColor?: string;
+  backgroundColor?: string;
+  backgroundPadding?: number;
+  letterSpacing?: number;
 }
 
 export interface FilterSettings {
   brightness: number;
   contrast: number;
   grayscale: number;
+  saturation: number;
+  hueRotate: number;
+  temperature: number;
 }
 
 export type PlaybackSpeed = 0.25 | 0.5 | 0.75 | 1 | 1.25 | 1.5 | 1.75 | 2;
@@ -124,6 +137,21 @@ export interface StickerOverlay {
   opacity: number;
 }
 
+// --- Chroma Key (Green Screen) ---
+export interface ChromaKeySettings {
+  enabled: boolean;
+  color: string;
+  similarity: number;
+  blend: number;
+}
+
+// --- Speed Ramp ---
+export type SpeedRampPreset = 'none' | 'ramp-up' | 'ramp-down' | 'slow-mo-burst';
+
+export interface SpeedRampSettings {
+  preset: SpeedRampPreset;
+}
+
 // --- Timeline clip ---
 
 export interface TimelineClip {
@@ -138,6 +166,8 @@ export interface TimelineClip {
   transform: TransformSettings;
   panZoom: PanZoomSettings;
   stickerOverlays: StickerOverlay[];
+  chromaKey: ChromaKeySettings | null;
+  speedRamp: SpeedRampSettings;
 }
 
 // --- Legacy transition settings (kept for global fade in/out) ---
@@ -249,10 +279,22 @@ export interface EditorState {
   captionSettings: CaptionSettings;
 }
 
+// Average speed multiplier for speed ramp presets
+const RAMP_AVG_SPEED: Record<SpeedRampPreset, number> = {
+  'none': 1,
+  'ramp-up': 1.25,      // avg of 0.5x→2x
+  'ramp-down': 1.25,    // avg of 2x→0.5x
+  'slow-mo-burst': 0.77, // avg of 1x→0.3x→1x
+};
+
 // Helper to compute effective clip duration
 export function getEffectiveDuration(clip: TimelineClip): number {
   const trimmed = clip.trim.end - clip.trim.start;
-  return trimmed > 0 ? trimmed / clip.playbackSpeed : 0;
+  if (trimmed <= 0) return 0;
+  const speedRampFactor = clip.speedRamp?.preset && clip.speedRamp.preset !== 'none'
+    ? RAMP_AVG_SPEED[clip.speedRamp.preset]
+    : 1;
+  return trimmed / (clip.playbackSpeed * speedRampFactor);
 }
 
 // Find which clip is at a given global time, and the local time within that clip

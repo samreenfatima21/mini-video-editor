@@ -4,6 +4,11 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import type { TimelineClip } from "@/types/editor";
 import { getEffectiveDuration } from "@/types/editor";
 
+interface WaveformData {
+  peaks: number[];
+  duration: number;
+}
+
 interface TimelineProps {
   clips: TimelineClip[];
   selectedClipId: string | null;
@@ -16,6 +21,7 @@ interface TimelineProps {
   onReorderClips?: (fromIndex: number, toIndex: number) => void;
   zoom?: number;
   onZoomChange?: (zoom: number) => void;
+  waveforms?: Record<string, WaveformData>;
 }
 
 export default function Timeline({
@@ -30,6 +36,7 @@ export default function Timeline({
   onReorderClips,
   zoom = 1,
   onZoomChange,
+  waveforms,
 }: TimelineProps) {
   const timelineRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -173,6 +180,30 @@ export default function Timeline({
                       />
                     ))}
                   </div>
+                )}
+
+                {/* Audio waveform */}
+                {waveforms?.[clip.id] && (
+                  <svg
+                    className="absolute inset-0 w-full h-full pointer-events-none"
+                    preserveAspectRatio="none"
+                    viewBox={`0 0 ${waveforms[clip.id].peaks.length} 100`}
+                    style={{ opacity: 0.35 }}
+                  >
+                    {waveforms[clip.id].peaks.map((peak, pi) => {
+                      const barH = Math.max(2, peak * 80);
+                      return (
+                        <rect
+                          key={pi}
+                          x={pi}
+                          y={100 - barH}
+                          width={0.8}
+                          height={barH}
+                          fill="var(--accent)"
+                        />
+                      );
+                    })}
+                  </svg>
                 )}
 
                 {/* Clip label */}

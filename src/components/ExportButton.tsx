@@ -33,7 +33,18 @@ interface ExportButtonProps {
   backgroundMusic?: BackgroundMusic | null;
   captionSettings?: CaptionSettings;
   addToast?: (message: string, type: "success" | "error" | "info") => void;
+  onCropChange?: (crop: CropSettings) => void;
 }
+
+import type { AspectRatioPreset } from "@/types/editor";
+
+const SOCIAL_PRESETS: { label: string; icon: string; aspect: AspectRatioPreset; quality: ExportQuality }[] = [
+  { label: "TikTok / Reels", icon: "9:16", aspect: "9:16", quality: "1080p" },
+  { label: "YouTube", icon: "16:9", aspect: "16:9", quality: "1080p" },
+  { label: "IG Square", icon: "1:1", aspect: "1:1", quality: "1080p" },
+  { label: "IG Story", icon: "9:16", aspect: "9:16", quality: "1080p" },
+  { label: "Twitter/X", icon: "16:9", aspect: "16:9", quality: "720p" },
+];
 
 const QUALITY_OPTIONS: { label: string; value: ExportQuality }[] = [
   { label: "720p", value: "720p" },
@@ -63,6 +74,26 @@ function buildAtempoChain(speed: number): string[] {
   while (s < 0.5) { filters.push("atempo=0.5"); s *= 2; }
   filters.push(`atempo=${s}`);
   return filters;
+}
+
+function buildSpeedRampFilter(preset: string, dur: number): string {
+  // dur = effective clip duration in seconds
+  switch (preset) {
+    case 'ramp-up':
+      // 0.5x → 2x (slow start, fast end)
+      return `setpts='PTS*(2.0-1.5*T/${dur.toFixed(3)})'`;
+    case 'ramp-down':
+      // 2x → 0.5x (fast start, slow end)
+      return `setpts='PTS*(0.5+1.5*T/${dur.toFixed(3)})'`;
+    case 'slow-mo-burst': {
+      // 1x → 0.3x → 1x (slow in middle)
+      const q1 = (dur / 3).toFixed(3);
+      const q2 = ((dur * 2) / 3).toFixed(3);
+      return `setpts='if(lt(T\\,${q1})\\,PTS*1.0\\,if(lt(T\\,${q2})\\,PTS*3.33\\,PTS*1.0))'`;
+    }
+    default:
+      return 'setpts=PTS';
+  }
 }
 
 function buildCropFilter(preset: string): string | null {
@@ -149,10 +180,23 @@ function buildTextDrawFilter(o: TextOverlay, clipDuration: number, fontsLoaded: 
     `fontcolor=${o.color}`,
     `x=${xParam}`,
     `y=(h*${o.y / 100})-(th/2)`,
-    'shadowcolor=black',
-    'shadowx=2',
-    'shadowy=2',
+    `shadowcolor=${o.shadowColor ?? 'black'}`,
+    `shadowx=${o.shadowOffsetX ?? 2}`,
+    `shadowy=${o.shadowOffsetY ?? 2}`,
   ];
+
+  // Outline (border)
+  if (o.strokeWidth && o.strokeWidth > 0) {
+    parts.push(`borderw=${o.strokeWidth}`);
+    parts.push(`bordercolor=${o.strokeColor ?? 'black'}`);
+  }
+
+  // Background box
+  if (o.backgroundColor) {
+    parts.push('box=1');
+    parts.push(`boxcolor=${o.backgroundColor}`);
+    parts.push(`boxborderw=${o.backgroundPadding ?? 4}`);
+  }
 
   // Add fontfile if the font was loaded into FFmpeg FS
   const fontFamily = (o.fontFamily || 'inter') as FontFamily;
@@ -283,9 +327,11 @@ export default function ExportButton({
   backgroundMusic,
   captionSettings,
   addToast,
+  onCropChange,
 }: ExportButtonProps) {
   const [statusMessage, setStatusMessage] = useState("");
   const [progress, setProgress] = useState(0);
+  const [exportFormat, setExportFormat] = useState<"mp4" | "gif">("mp4");
 
   const handleExport = useCallback(async () => {
     if (clips.length === 0) return;
@@ -370,17 +416,47 @@ export default function ExportButton({
       }
 
       setProgress(80);
-      setStatusMessage("Preparing download...");
-      const outputData = await ffmpeg.readFile("output.mp4");
-      setProgress(90);
 
-      const blob = new Blob([new Uint8Array(outputData as Uint8Array)], { type: "video/mp4" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `edited_project.mp4`;
-      link.click();
-      URL.revokeObjectURL(url);
+      if (exportFormat === "gif") {
+        // Two-pass GIF conversion
+        setStatusMessage("Generating GIF palette...");
+        await ffmpeg.exec([
+          "-i", "output.mp4",
+          "-vf", "fps=15,scale=480:-1:flags=lanczos,palettegen",
+          "-y", "palette.png",
+        ]);
+        setProgress(85);
+        setStatusMessage("Creating optimized GIF...");
+        await ffmpeg.exec([
+          "-i", "output.mp4",
+          "-i", "palette.png",
+          "-filter_complex", "fps=15,scale=480:-1:flags=lanczos[x];[x][1:v]paletteuse",
+          "-y", "output.gif",
+        ]);
+        setProgress(90);
+        setStatusMessage("Preparing download...");
+        const gifData = await ffmpeg.readFile("output.gif");
+        const blob = new Blob([new Uint8Array(gifData as Uint8Array)], { type: "image/gif" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `edited_project.gif`;
+        link.click();
+        URL.revokeObjectURL(url);
+        try { await ffmpeg.deleteFile("palette.png"); } catch { /* ignore */ }
+        try { await ffmpeg.deleteFile("output.gif"); } catch { /* ignore */ }
+      } else {
+        setStatusMessage("Preparing download...");
+        const outputData = await ffmpeg.readFile("output.mp4");
+        setProgress(90);
+        const blob = new Blob([new Uint8Array(outputData as Uint8Array)], { type: "video/mp4" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `edited_project.mp4`;
+        link.click();
+        URL.revokeObjectURL(url);
+      }
 
       // Cleanup virtual FS
       for (let i = 0; i < clips.length; i++) {
@@ -406,7 +482,7 @@ export default function ExportButton({
     } finally {
       onProcessingChange(false);
     }
-  }, [clips, crop, watermark, exportQuality, globalFadeIn, globalFadeOut, backgroundMusic, captionSettings, onProcessingChange, addToast]);
+  }, [clips, crop, watermark, exportQuality, globalFadeIn, globalFadeOut, backgroundMusic, captionSettings, onProcessingChange, addToast, exportFormat]);
 
   // ─── Single-clip export ─────────────────────────────────
 
@@ -428,10 +504,21 @@ export default function ExportButton({
 
     const vf: string[] = [];
 
-    if (clip.playbackSpeed !== 1) vf.push(`setpts=${1 / clip.playbackSpeed}*PTS`);
+    // Speed ramp overrides constant speed
+    if (clip.speedRamp?.preset && clip.speedRamp.preset !== 'none') {
+      vf.push(buildSpeedRampFilter(clip.speedRamp.preset, dur));
+    } else if (clip.playbackSpeed !== 1) {
+      vf.push(`setpts=${1 / clip.playbackSpeed}*PTS`);
+    }
 
     // Transform (rotate/flip)
     vf.push(...buildTransformFilters(clip));
+
+    // Chroma key (green screen)
+    if (clip.chromaKey?.enabled) {
+      const hex = clip.chromaKey.color;
+      vf.push(`chromakey=color=${hex}:similarity=${clip.chromaKey.similarity}:blend=${clip.chromaKey.blend}`);
+    }
 
     // Pan & Zoom
     const pzFilter = buildPanZoomFilter(clip.panZoom, dur, dim.w, dim.h);
@@ -441,7 +528,19 @@ export default function ExportButton({
     const b = (clip.filters.brightness - 100) / 100;
     const c = clip.filters.contrast / 100;
     if (b !== 0 || c !== 1) vf.push(`eq=brightness=${b}:contrast=${c}`);
-    if (clip.filters.grayscale > 0) vf.push(`hue=s=${1 - clip.filters.grayscale / 100}`);
+    const grayscaleFactor = 1 - clip.filters.grayscale / 100;
+    const satFactor = clip.filters.saturation / 100;
+    const finalSat = grayscaleFactor * satFactor;
+    if (finalSat !== 1 || clip.filters.hueRotate !== 0) {
+      vf.push(`hue=h=${clip.filters.hueRotate}:s=${finalSat.toFixed(3)}`);
+    }
+    // Temperature: warm = boost red, reduce blue; cool = opposite
+    if (clip.filters.temperature !== 0) {
+      const t = clip.filters.temperature;
+      const rr = (1 + t * 0.003).toFixed(3);
+      const bb = (1 - t * 0.003).toFixed(3);
+      vf.push(`colorchannelmixer=rr=${rr}:bb=${bb}`);
+    }
 
     const cropF = buildCropFilter(crop.preset);
     if (cropF) vf.push(cropF);
@@ -581,10 +680,21 @@ export default function ExportButton({
       if (clip.trim.end > 0) {
         vf.push(`trim=start=${clip.trim.start}:end=${clip.trim.end}`, "setpts=PTS-STARTPTS");
       }
-      if (clip.playbackSpeed !== 1) vf.push(`setpts=${1 / clip.playbackSpeed}*PTS`);
+      // Speed ramp overrides constant speed
+      if (clip.speedRamp?.preset && clip.speedRamp.preset !== 'none') {
+        vf.push(buildSpeedRampFilter(clip.speedRamp.preset, durations[i]));
+      } else if (clip.playbackSpeed !== 1) {
+        vf.push(`setpts=${1 / clip.playbackSpeed}*PTS`);
+      }
 
       // Transform (rotate/flip)
       vf.push(...buildTransformFilters(clip));
+
+      // Chroma key (green screen)
+      if (clip.chromaKey?.enabled) {
+        const hex = clip.chromaKey.color;
+        vf.push(`chromakey=color=${hex}:similarity=${clip.chromaKey.similarity}:blend=${clip.chromaKey.blend}`);
+      }
 
       // Pan & Zoom
       const pzFilter = buildPanZoomFilter(clip.panZoom, durations[i], dimensions[i].w, dimensions[i].h);
@@ -594,7 +704,18 @@ export default function ExportButton({
       const b = (clip.filters.brightness - 100) / 100;
       const c = clip.filters.contrast / 100;
       if (b !== 0 || c !== 1) vf.push(`eq=brightness=${b}:contrast=${c}`);
-      if (clip.filters.grayscale > 0) vf.push(`hue=s=${1 - clip.filters.grayscale / 100}`);
+      const grayscaleFactor = 1 - clip.filters.grayscale / 100;
+      const satFactor = clip.filters.saturation / 100;
+      const finalSat = grayscaleFactor * satFactor;
+      if (finalSat !== 1 || clip.filters.hueRotate !== 0) {
+        vf.push(`hue=h=${clip.filters.hueRotate}:s=${finalSat.toFixed(3)}`);
+      }
+      if (clip.filters.temperature !== 0) {
+        const t = clip.filters.temperature;
+        const rr = (1 + t * 0.003).toFixed(3);
+        const bb = (1 - t * 0.003).toFixed(3);
+        vf.push(`colorchannelmixer=rr=${rr}:bb=${bb}`);
+      }
 
       // Text overlays with font + animation
       for (const o of clip.textOverlays) {
@@ -763,6 +884,58 @@ export default function ExportButton({
           </div>
         </div>
       )}
+
+      {/* Social Media Presets */}
+      {onCropChange && (
+        <div className="mb-3">
+          <label className="text-[10px] uppercase tracking-wider block mb-1.5" style={{ color: 'var(--text-muted)' }}>Social Presets</label>
+          <div className="grid grid-cols-2 gap-1.5">
+            {SOCIAL_PRESETS.map((preset) => (
+              <button
+                key={preset.label}
+                onClick={() => {
+                  onCropChange({ preset: preset.aspect });
+                  onExportQualityChange(preset.quality);
+                  addToast?.(`Applied ${preset.label} preset`, "info");
+                }}
+                className="px-2 py-1.5 rounded-md text-[10px] font-medium transition-all text-left flex items-center gap-1.5"
+                style={{
+                  background: crop.preset === preset.aspect && exportQuality === preset.quality ? 'var(--accent-bg)' : 'var(--bg-elevated)',
+                  color: crop.preset === preset.aspect && exportQuality === preset.quality ? 'var(--accent)' : 'var(--text-secondary)',
+                  border: crop.preset === preset.aspect && exportQuality === preset.quality ? '1px solid var(--accent)' : '1px solid var(--border-subtle)',
+                }}
+              >
+                <span className="font-mono text-[9px] opacity-60">{preset.icon}</span>
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Format */}
+      <div className="mb-3">
+        <label className="text-[10px] uppercase tracking-wider block mb-1.5" style={{ color: 'var(--text-muted)' }}>Format</label>
+        <div className="flex gap-1.5">
+          {(["mp4", "gif"] as const).map((fmt) => (
+            <button
+              key={fmt}
+              onClick={() => setExportFormat(fmt)}
+              className="flex-1 py-1.5 rounded-md text-[11px] font-medium transition-all uppercase"
+              style={{
+                background: exportFormat === fmt ? 'var(--accent-success)' : 'var(--bg-elevated)',
+                color: exportFormat === fmt ? 'white' : 'var(--text-secondary)',
+                border: `1px solid ${exportFormat === fmt ? 'var(--accent-success)' : 'var(--border-subtle)'}`,
+              }}
+            >
+              {fmt}
+            </button>
+          ))}
+        </div>
+        {exportFormat === "gif" && (
+          <p className="text-[9px] mt-1" style={{ color: 'var(--text-muted)' }}>15fps, max 480px width, palette-optimized</p>
+        )}
+      </div>
 
       {/* Quality */}
       <div className="mb-3">

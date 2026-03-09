@@ -235,6 +235,104 @@ export default function TextOverlayPanel({
                   </div>
                 </div>
 
+                {/* Style section */}
+                <details className="mt-1">
+                  <summary className="text-[10px] uppercase tracking-wider cursor-pointer select-none" style={{ color: 'var(--text-muted)' }}>Style Options</summary>
+                  <div className="space-y-2 mt-2">
+                    {/* Outline */}
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <label className="text-[10px] uppercase tracking-wider block mb-1" style={{ color: 'var(--text-muted)' }}>Outline: {overlay.strokeWidth ?? 0}px</label>
+                        <input type="range" min={0} max={10} value={overlay.strokeWidth ?? 0}
+                          onChange={(e) => updateOverlay(overlay.id, { strokeWidth: parseInt(e.target.value) })}
+                          className="w-full"
+                        />
+                      </div>
+                      <div className="w-12">
+                        <label className="text-[10px] uppercase tracking-wider block mb-1" style={{ color: 'var(--text-muted)' }}>Color</label>
+                        <input type="color" value={overlay.strokeColor ?? '#000000'}
+                          onChange={(e) => updateOverlay(overlay.id, { strokeColor: e.target.value })}
+                          className="w-full h-7 rounded cursor-pointer"
+                          style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)' }}
+                        />
+                      </div>
+                    </div>
+                    {/* Shadow */}
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <label className="text-[10px] uppercase tracking-wider block mb-1" style={{ color: 'var(--text-muted)' }}>Shadow X: {overlay.shadowOffsetX ?? 2}</label>
+                        <input type="range" min={-20} max={20} value={overlay.shadowOffsetX ?? 2}
+                          onChange={(e) => updateOverlay(overlay.id, { shadowOffsetX: parseInt(e.target.value) })}
+                          className="w-full"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-[10px] uppercase tracking-wider block mb-1" style={{ color: 'var(--text-muted)' }}>Shadow Y: {overlay.shadowOffsetY ?? 2}</label>
+                        <input type="range" min={-20} max={20} value={overlay.shadowOffsetY ?? 2}
+                          onChange={(e) => updateOverlay(overlay.id, { shadowOffsetY: parseInt(e.target.value) })}
+                          className="w-full"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <label className="text-[10px] uppercase tracking-wider block mb-1" style={{ color: 'var(--text-muted)' }}>Shadow Blur: {overlay.shadowBlur ?? 4}</label>
+                        <input type="range" min={0} max={30} value={overlay.shadowBlur ?? 4}
+                          onChange={(e) => updateOverlay(overlay.id, { shadowBlur: parseInt(e.target.value) })}
+                          className="w-full"
+                        />
+                      </div>
+                      <div className="w-12">
+                        <label className="text-[10px] uppercase tracking-wider block mb-1" style={{ color: 'var(--text-muted)' }}>Color</label>
+                        <input type="color" value={overlay.shadowColor ?? '#000000'}
+                          onChange={(e) => updateOverlay(overlay.id, { shadowColor: e.target.value })}
+                          className="w-full h-7 rounded cursor-pointer"
+                          style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)' }}
+                        />
+                      </div>
+                    </div>
+                    {/* Background */}
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <label className="text-[10px] uppercase tracking-wider block mb-1" style={{ color: 'var(--text-muted)' }}>Background</label>
+                        <input type="color" value={overlay.backgroundColor ?? '#000000'}
+                          onChange={(e) => updateOverlay(overlay.id, { backgroundColor: e.target.value })}
+                          className="w-full h-7 rounded cursor-pointer"
+                          style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)' }}
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-[10px] uppercase tracking-wider block mb-1" style={{ color: 'var(--text-muted)' }}>Pad: {overlay.backgroundPadding ?? 4}px</label>
+                        <input type="range" min={0} max={30} value={overlay.backgroundPadding ?? 4}
+                          onChange={(e) => updateOverlay(overlay.id, { backgroundPadding: parseInt(e.target.value) })}
+                          className="w-full"
+                        />
+                      </div>
+                      {overlay.backgroundColor && (
+                        <button
+                          onClick={() => updateOverlay(overlay.id, { backgroundColor: undefined })}
+                          className="self-end p-1 rounded text-[10px]"
+                          style={{ color: 'var(--text-muted)' }}
+                          title="Remove background"
+                        >
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                    {/* Letter spacing */}
+                    <div>
+                      <label className="text-[10px] uppercase tracking-wider block mb-1" style={{ color: 'var(--text-muted)' }}>Letter Spacing: {overlay.letterSpacing ?? 0}px</label>
+                      <input type="range" min={-5} max={20} value={overlay.letterSpacing ?? 0}
+                        onChange={(e) => updateOverlay(overlay.id, { letterSpacing: parseInt(e.target.value) })}
+                        className="w-full"
+                      />
+                      <p className="text-[9px] mt-0.5" style={{ color: 'var(--text-muted)' }}>Preview only — not applied during export</p>
+                    </div>
+                  </div>
+                </details>
+
                 <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
                   Drag text directly on the video preview
                 </p>

@@ -20,10 +20,12 @@ import type {
   Caption,
   CaptionStyle,
   CaptionSettings,
+  ChromaKeySettings,
+  SpeedRampSettings,
 } from "@/types/editor";
 import { getTotalDuration, getEffectiveDuration, findClipAtTime } from "@/types/editor";
 
-const defaultFilters: FilterSettings = { brightness: 100, contrast: 100, grayscale: 0 };
+const defaultFilters: FilterSettings = { brightness: 100, contrast: 100, grayscale: 0, saturation: 100, hueRotate: 0, temperature: 0 };
 const defaultAudio: AudioSettings = { muted: false, volume: 1, fadeIn: 0, fadeOut: 0 };
 const defaultTransform: TransformSettings = { rotation: 0, flipH: false, flipV: false };
 const defaultPanZoom: PanZoomSettings = {
@@ -81,6 +83,8 @@ export function useVideoEditor() {
       transform: { ...defaultTransform },
       panZoom: { ...defaultPanZoom },
       stickerOverlays: [],
+      chromaKey: null,
+      speedRamp: { preset: 'none' },
     };
 
     setState((prev) => {
@@ -156,6 +160,8 @@ export function useVideoEditor() {
           endKeyframe: { ...original.panZoom.endKeyframe },
         },
         stickerOverlays: original.stickerOverlays.map((s) => ({ ...s, id: `stk-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` })),
+        chromaKey: original.chromaKey ? { ...original.chromaKey } : null,
+        speedRamp: { ...original.speedRamp },
       };
       const newClips = [...prev.clips];
       newClips.splice(idx + 1, 0, duplicate);
@@ -190,6 +196,8 @@ export function useVideoEditor() {
         transform: { ...clip.transform },
         panZoom: { ...clip.panZoom, startKeyframe: { ...clip.panZoom.startKeyframe }, endKeyframe: { ...clip.panZoom.endKeyframe } },
         stickerOverlays: clip.stickerOverlays.map((s) => ({ ...s })),
+        chromaKey: clip.chromaKey ? { ...clip.chromaKey } : null,
+        speedRamp: { ...clip.speedRamp },
       };
 
       const clipB: TimelineClip = {
@@ -204,6 +212,8 @@ export function useVideoEditor() {
         transform: { ...clip.transform },
         panZoom: { ...clip.panZoom, startKeyframe: { ...clip.panZoom.startKeyframe }, endKeyframe: { ...clip.panZoom.endKeyframe } },
         stickerOverlays: clip.stickerOverlays.map((s) => ({ ...s })),
+        chromaKey: clip.chromaKey ? { ...clip.chromaKey } : null,
+        speedRamp: { ...clip.speedRamp },
       };
 
       const newClips = [...prev.clips];
@@ -283,6 +293,18 @@ export function useVideoEditor() {
       }));
     },
     []
+  );
+
+  // --- Chroma Key ---
+  const setClipChromaKey = useCallback(
+    (chromaKey: ChromaKeySettings | null) => updateSelectedClip((c) => ({ ...c, chromaKey })),
+    [updateSelectedClip]
+  );
+
+  // --- Speed Ramp ---
+  const setClipSpeedRamp = useCallback(
+    (speedRamp: SpeedRampSettings) => updateSelectedClip((c) => ({ ...c, speedRamp })),
+    [updateSelectedClip]
   );
 
   // --- Transform (rotate/flip) ---
@@ -490,6 +512,10 @@ export function useVideoEditor() {
     setClipPlaybackSpeed,
     setClipAudio,
     setClipTransition,
+    // Chroma Key
+    setClipChromaKey,
+    // Speed Ramp
+    setClipSpeedRamp,
     // Transform (rotate/flip)
     rotateClip,
     toggleFlipH,

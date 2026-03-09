@@ -4,7 +4,7 @@ import { useRef, useEffect, useCallback, useState } from "react";
 import type {
   FilterSettings, TextOverlay, PlaybackSpeed, AudioSettings,
   CropSettings, WatermarkSettings, TransformSettings, PanZoomSettings,
-  StickerOverlay, CaptionSettings,
+  StickerOverlay, CaptionSettings, ChromaKeySettings, SpeedRampSettings,
 } from "@/types/editor";
 import { FONTS } from "@/lib/fonts";
 import { ANIMATIONS } from "@/lib/animations";
@@ -23,6 +23,8 @@ interface CenterCanvasProps {
   panZoom: PanZoomSettings;
   stickerOverlays: StickerOverlay[];
   captionSettings: CaptionSettings;
+  chromaKey?: ChromaKeySettings | null;
+  speedRamp?: SpeedRampSettings;
   currentTime: number;
   showOriginal?: boolean;
   onVideoRef?: (ref: HTMLVideoElement | null) => void;
@@ -34,7 +36,7 @@ interface CenterCanvasProps {
   onTogglePlay: () => void;
 }
 
-const defaultFilters: FilterSettings = { brightness: 100, contrast: 100, grayscale: 0 };
+const defaultFilters: FilterSettings = { brightness: 100, contrast: 100, grayscale: 0, saturation: 100, hueRotate: 0, temperature: 0 };
 
 const aspectRatioCSS: Record<string, string | undefined> = {
   "16:9": "16/9",
@@ -57,6 +59,8 @@ export default function CenterCanvas({
   panZoom,
   stickerOverlays,
   captionSettings,
+  chromaKey,
+  speedRamp,
   currentTime,
   showOriginal = false,
   onVideoRef,
@@ -81,6 +85,36 @@ export default function CenterCanvas({
     }
   }, [playbackSpeed]);
 
+  // Dynamic playback rate for speed ramp
+  useEffect(() => {
+    if (!speedRamp || speedRamp.preset === 'none' || !isPlaying) return;
+    let animId: number;
+    const tick = () => {
+      if (!videoRef.current) return;
+      const dur = videoRef.current.duration || 1;
+      const t = videoRef.current.currentTime;
+      const progress = t / dur;
+      let rate: number = playbackSpeed;
+      switch (speedRamp.preset) {
+        case 'ramp-up':
+          rate = 0.5 + 1.5 * progress; // 0.5→2.0
+          break;
+        case 'ramp-down':
+          rate = 2.0 - 1.5 * progress; // 2.0→0.5
+          break;
+        case 'slow-mo-burst':
+          if (progress < 0.33) rate = 1.0;
+          else if (progress < 0.66) rate = 0.3;
+          else rate = 1.0;
+          break;
+      }
+      videoRef.current.playbackRate = Math.max(0.1, Math.min(4, rate));
+      animId = requestAnimationFrame(tick);
+    };
+    animId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animId);
+  }, [speedRamp, isPlaying, playbackSpeed]);
+
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.muted = audio.muted;
@@ -89,8 +123,19 @@ export default function CenterCanvas({
   }, [audio.muted, audio.volume]);
 
   const activeFilters = showOriginal ? defaultFilters : filters;
+  const tempIntensity = Math.abs(activeFilters.temperature) / 100;
+  const tempSepia = activeFilters.temperature !== 0 ? `sepia(${(tempIntensity * 40).toFixed(0)}%)` : '';
+  const tempHueShift = activeFilters.temperature < 0 ? 'hue-rotate(180deg)' : '';
   const filterStyle = {
-    filter: `brightness(${activeFilters.brightness}%) contrast(${activeFilters.contrast}%) grayscale(${activeFilters.grayscale}%)`,
+    filter: [
+      `brightness(${activeFilters.brightness}%)`,
+      `contrast(${activeFilters.contrast}%)`,
+      `grayscale(${activeFilters.grayscale}%)`,
+      `saturate(${activeFilters.saturation}%)`,
+      `hue-rotate(${activeFilters.hueRotate}deg)`,
+      tempSepia,
+      tempHueShift,
+    ].filter(Boolean).join(' '),
   };
 
   const cropStyle: React.CSSProperties = {};
@@ -227,7 +272,11 @@ export default function CenterCanvas({
                 fontSize: `${overlay.fontSize}px`,
                 color: overlay.color,
                 fontFamily: fontConfig.cssFamily,
-                textShadow: "2px 2px 4px rgba(0,0,0,0.8)",
+                textShadow: `${overlay.shadowOffsetX ?? 2}px ${overlay.shadowOffsetY ?? 2}px ${overlay.shadowBlur ?? 4}px ${overlay.shadowColor ?? 'rgba(0,0,0,0.8)'}`,
+                WebkitTextStroke: overlay.strokeWidth ? `${overlay.strokeWidth}px ${overlay.strokeColor ?? '#000000'}` : undefined,
+                backgroundColor: overlay.backgroundColor || undefined,
+                padding: overlay.backgroundColor ? `${overlay.backgroundPadding ?? 4}px` : undefined,
+                letterSpacing: overlay.letterSpacing ? `${overlay.letterSpacing}px` : undefined,
               }}
               onMouseDown={(e) => handleOverlayMouseDown(e, overlay.id)}
             >
@@ -264,6 +313,27 @@ export default function CenterCanvas({
 
         {/* Caption overlay */}
         <CaptionOverlay captionSettings={captionSettings} currentTime={currentTime} />
+
+        {/* Chroma key badge */}
+        {chromaKey?.enabled && (
+          <div
+            className="absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium"
+            style={{ background: 'rgba(0,255,0,0.2)', color: '#00ff88', border: '1px solid rgba(0,255,0,0.3)' }}
+          >
+            <div className="w-2 h-2 rounded-full" style={{ background: chromaKey.color }} />
+            Chroma Key
+          </div>
+        )}
+
+        {/* Speed ramp badge */}
+        {speedRamp && speedRamp.preset !== 'none' && (
+          <div
+            className="absolute top-2 right-2 px-2 py-1 rounded text-[10px] font-medium"
+            style={{ background: 'rgba(255,200,0,0.2)', color: '#ffcc00', border: '1px solid rgba(255,200,0,0.3)' }}
+          >
+            {speedRamp.preset === 'ramp-up' ? 'Ramp Up' : speedRamp.preset === 'ramp-down' ? 'Ramp Down' : 'Slow-Mo Burst'}
+          </div>
+        )}
 
         {/* Watermark */}
         {watermark.enabled && watermark.text && (

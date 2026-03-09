@@ -8,6 +8,7 @@ import { useRecentProjects } from "@/hooks/useRecentProjects";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { useTheme } from "@/hooks/useTheme";
 import { useMultiThumbnails } from "@/hooks/useThumbnails";
+import { useAudioWaveform } from "@/hooks/useAudioWaveform";
 import { getFFmpeg } from "@/lib/ffmpeg";
 
 import TopToolbar from "@/components/editor/TopToolbar";
@@ -31,13 +32,15 @@ import AudioPanel from "@/components/AudioPanel";
 import CaptionsPanel from "@/components/CaptionsPanel";
 import PanZoomPanel from "@/components/PanZoomPanel";
 import StickersPanel from "@/components/StickersPanel";
+import ChromaKeyPanel from "@/components/ChromaKeyPanel";
+import SpeedRampPanel from "@/components/SpeedRampPanel";
 import ToastContainer from "@/components/Toast";
 import KeyboardShortcuts from "@/components/KeyboardShortcuts";
 import SplashScreen from "@/components/SplashScreen";
 import { useBackgroundMusic } from "@/hooks/useBackgroundMusic";
 import { useProjectStorage } from "@/hooks/useProjectStorage";
 import ProjectModal from "@/components/ProjectModal";
-import type { EditorState, FilterSettings, TextOverlay, AutoSaveData, BackgroundMusic, StickerOverlay } from "@/types/editor";
+import type { EditorState, FilterSettings, TextOverlay, AutoSaveData, BackgroundMusic, StickerOverlay, ChromaKeySettings, SpeedRampSettings } from "@/types/editor";
 
 export default function Home() {
   const {
@@ -64,6 +67,8 @@ export default function Home() {
     addSticker,
     updateSticker,
     removeSticker,
+    setClipChromaKey,
+    setClipSpeedRamp,
     setCrop,
     setWatermark,
     setExportQuality,
@@ -105,6 +110,7 @@ export default function Home() {
   const { projects: savedProjects, saveProject, loadProject, deleteProject } = useProjectStorage();
 
   const clipThumbnails = useMultiThumbnails(state.clips);
+  const waveformData = useAudioWaveform(state.clips);
 
   // Auto-push state changes for undo/redo (skip transient fields and undo/redo restores)
   const stateForUndo = useMemo(() => {
@@ -134,7 +140,7 @@ export default function Home() {
     const clip = selectedClip;
     return {
       projectName,
-      filters: clip?.filters ?? { brightness: 100, contrast: 100, grayscale: 0 },
+      filters: clip?.filters ?? { brightness: 100, contrast: 100, grayscale: 0, saturation: 100, hueRotate: 0, temperature: 0 },
       textOverlays: clip?.textOverlays ?? [],
       trim: clip?.trim ?? { start: 0, end: 0 },
       playbackSpeed: clip?.playbackSpeed ?? 1,
@@ -516,6 +522,20 @@ export default function Home() {
             onRemoveSticker={removeSticker}
           />
         ) : null;
+      case 'chromakey':
+        return clip ? (
+          <ChromaKeyPanel
+            chromaKey={clip.chromaKey}
+            onChange={setClipChromaKey}
+          />
+        ) : null;
+      case 'speedramp':
+        return clip ? (
+          <SpeedRampPanel
+            speedRamp={clip.speedRamp}
+            onChange={setClipSpeedRamp}
+          />
+        ) : null;
       case 'export':
         return (
           <ExportButton
@@ -533,6 +553,7 @@ export default function Home() {
             backgroundMusic={state.backgroundMusic}
             captionSettings={state.captionSettings}
             addToast={addToast}
+            onCropChange={setCrop}
           />
         );
       default:
@@ -773,6 +794,8 @@ export default function Home() {
               panZoom={selectedClip.panZoom}
               stickerOverlays={selectedClip.stickerOverlays}
               captionSettings={state.captionSettings}
+              chromaKey={selectedClip.chromaKey}
+              speedRamp={selectedClip.speedRamp}
               currentTime={currentTime}
               showOriginal={showOriginal}
               onVideoRef={(el) => { videoElRef.current = el; }}
@@ -828,6 +851,7 @@ export default function Home() {
               onReorderClips={reorderClips}
               zoom={timelineZoom}
               onZoomChange={setTimelineZoom}
+              waveforms={waveformData}
             />
           </BottomTimeline>
         </div>

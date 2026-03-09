@@ -8,19 +8,19 @@ interface FilterPanelProps {
 }
 
 const PRESETS: { name: string; filters: FilterSettings }[] = [
-  { name: "Normal", filters: { brightness: 100, contrast: 100, grayscale: 0 } },
-  { name: "Vintage", filters: { brightness: 110, contrast: 85, grayscale: 30 } },
-  { name: "Cinematic", filters: { brightness: 90, contrast: 130, grayscale: 10 } },
-  { name: "Bright", filters: { brightness: 140, contrast: 110, grayscale: 0 } },
-  { name: "Noir", filters: { brightness: 95, contrast: 120, grayscale: 100 } },
-  { name: "Warm", filters: { brightness: 115, contrast: 105, grayscale: 5 } },
-  { name: "Cool", filters: { brightness: 95, contrast: 110, grayscale: 15 } },
-  { name: "Sepia", filters: { brightness: 110, contrast: 90, grayscale: 45 } },
-  { name: "Retro", filters: { brightness: 105, contrast: 80, grayscale: 25 } },
-  { name: "Fade", filters: { brightness: 120, contrast: 75, grayscale: 10 } },
-  { name: "Dramatic", filters: { brightness: 85, contrast: 150, grayscale: 5 } },
-  { name: "Sunset", filters: { brightness: 125, contrast: 115, grayscale: 8 } },
-  { name: "Ocean", filters: { brightness: 90, contrast: 105, grayscale: 20 } },
+  { name: "Normal", filters: { brightness: 100, contrast: 100, grayscale: 0, saturation: 100, hueRotate: 0, temperature: 0 } },
+  { name: "Vintage", filters: { brightness: 110, contrast: 85, grayscale: 30, saturation: 80, hueRotate: 10, temperature: 20 } },
+  { name: "Cinematic", filters: { brightness: 90, contrast: 130, grayscale: 10, saturation: 90, hueRotate: 0, temperature: -10 } },
+  { name: "Bright", filters: { brightness: 140, contrast: 110, grayscale: 0, saturation: 110, hueRotate: 0, temperature: 10 } },
+  { name: "Noir", filters: { brightness: 95, contrast: 120, grayscale: 100, saturation: 0, hueRotate: 0, temperature: 0 } },
+  { name: "Warm", filters: { brightness: 115, contrast: 105, grayscale: 5, saturation: 105, hueRotate: 5, temperature: 40 } },
+  { name: "Cool", filters: { brightness: 95, contrast: 110, grayscale: 15, saturation: 95, hueRotate: -5, temperature: -30 } },
+  { name: "Sepia", filters: { brightness: 110, contrast: 90, grayscale: 45, saturation: 70, hueRotate: 15, temperature: 30 } },
+  { name: "Retro", filters: { brightness: 105, contrast: 80, grayscale: 25, saturation: 85, hueRotate: 10, temperature: 15 } },
+  { name: "Fade", filters: { brightness: 120, contrast: 75, grayscale: 10, saturation: 90, hueRotate: 0, temperature: 5 } },
+  { name: "Dramatic", filters: { brightness: 85, contrast: 150, grayscale: 5, saturation: 120, hueRotate: 0, temperature: -5 } },
+  { name: "Sunset", filters: { brightness: 125, contrast: 115, grayscale: 8, saturation: 130, hueRotate: 10, temperature: 50 } },
+  { name: "Ocean", filters: { brightness: 90, contrast: 105, grayscale: 20, saturation: 90, hueRotate: -15, temperature: -40 } },
 ];
 
 export default function FilterPanel({
@@ -32,19 +32,25 @@ export default function FilterPanel({
   };
 
   const resetFilters = () => {
-    onFiltersChange({ brightness: 100, contrast: 100, grayscale: 0 });
+    onFiltersChange({ brightness: 100, contrast: 100, grayscale: 0, saturation: 100, hueRotate: 0, temperature: 0 });
   };
 
   const isModified =
     filters.brightness !== 100 ||
     filters.contrast !== 100 ||
-    filters.grayscale !== 0;
+    filters.grayscale !== 0 ||
+    filters.saturation !== 100 ||
+    filters.hueRotate !== 0 ||
+    filters.temperature !== 0;
 
   const activePreset = PRESETS.find(
     (p) =>
       p.filters.brightness === filters.brightness &&
       p.filters.contrast === filters.contrast &&
-      p.filters.grayscale === filters.grayscale
+      p.filters.grayscale === filters.grayscale &&
+      p.filters.saturation === filters.saturation &&
+      p.filters.hueRotate === filters.hueRotate &&
+      p.filters.temperature === filters.temperature
   );
 
   return (
@@ -118,6 +124,42 @@ export default function FilterPanel({
             type="range" min={0} max={100}
             value={filters.grayscale}
             onChange={(e) => updateFilter("grayscale", parseInt(e.target.value))}
+            className="w-full"
+          />
+        </div>
+        <div>
+          <div className="flex justify-between text-[11px] mb-1">
+            <span style={{ color: 'var(--text-muted)' }}>Saturation</span>
+            <span className="font-mono" style={{ color: 'var(--text-secondary)' }}>{filters.saturation}%</span>
+          </div>
+          <input
+            type="range" min={0} max={200}
+            value={filters.saturation}
+            onChange={(e) => updateFilter("saturation", parseInt(e.target.value))}
+            className="w-full"
+          />
+        </div>
+        <div>
+          <div className="flex justify-between text-[11px] mb-1">
+            <span style={{ color: 'var(--text-muted)' }}>Hue</span>
+            <span className="font-mono" style={{ color: 'var(--text-secondary)' }}>{filters.hueRotate}°</span>
+          </div>
+          <input
+            type="range" min={-180} max={180}
+            value={filters.hueRotate}
+            onChange={(e) => updateFilter("hueRotate", parseInt(e.target.value))}
+            className="w-full"
+          />
+        </div>
+        <div>
+          <div className="flex justify-between text-[11px] mb-1">
+            <span style={{ color: 'var(--text-muted)' }}>Temperature</span>
+            <span className="font-mono" style={{ color: 'var(--text-secondary)' }}>{filters.temperature > 0 ? '+' : ''}{filters.temperature}</span>
+          </div>
+          <input
+            type="range" min={-100} max={100}
+            value={filters.temperature}
+            onChange={(e) => updateFilter("temperature", parseInt(e.target.value))}
             className="w-full"
           />
         </div>
