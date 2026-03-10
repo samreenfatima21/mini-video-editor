@@ -477,6 +477,13 @@ export function useVideoEditor() {
     }));
   }, []);
 
+  const clearAllCaptions = useCallback(() => {
+    setState((prev) => ({
+      ...prev,
+      captionSettings: { ...prev.captionSettings, captions: [] },
+    }));
+  }, []);
+
   // --- State restore (for undo/redo) ---
   const restoreState = useCallback((s: EditorState) => {
     setState(s);
@@ -542,6 +549,7 @@ export function useVideoEditor() {
     addCaption,
     updateCaption,
     removeCaption,
+    clearAllCaptions,
     setCaptionStyle,
     setCaptionsEnabled,
     // State restore

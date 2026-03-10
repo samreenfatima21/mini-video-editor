@@ -81,6 +81,7 @@ export default function Home() {
     addCaption,
     updateCaption,
     removeCaption,
+    clearAllCaptions,
     setCaptionStyle,
     setCaptionsEnabled,
     restoreState,
@@ -499,9 +500,11 @@ export default function Home() {
             enabled={state.captionSettings.enabled}
             style={state.captionSettings.style}
             currentTime={currentTime}
+            videoFile={selectedClip?.video.file}
             onAddCaption={addCaption}
             onUpdateCaption={updateCaption}
             onRemoveCaption={removeCaption}
+            onClearCaptions={clearAllCaptions}
             onStyleChange={setCaptionStyle}
             onEnabledChange={setCaptionsEnabled}
           />
